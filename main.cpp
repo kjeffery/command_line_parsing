@@ -172,9 +172,25 @@ public:
 
     void add(ArgumentBase& argument)
     {
-        // TODO: check for duplicate names
-        Key key{ argument.get_short_name(), argument.get_long_name() };
-        m_args.emplace(key, std::addressof(argument));
+        const auto short_name = argument.get_short_name();
+        const auto long_name  = argument.get_long_name();
+
+        if (short_name.empty() && long_name.empty()) {
+            throw 3; // TODO: replace At least one name must be specified
+        }
+
+        if (!short_name.empty()) {
+            if (auto [iter, inserted] = m_short_to_long.emplace(short_name, long_name); !inserted) {
+                throw 8; // TODO: already exists
+            }
+        }
+
+        if (!long_name.empty()) {
+            if (auto [iter, inserted] = m_long_to_short.emplace(long_name, short_name); !inserted) {
+                throw 9; // TODO: already exists
+            }
+        }
+        m_args.emplace(Key{short_name, long_name}, std::addressof(argument));
     }
 
 private:
@@ -182,8 +198,9 @@ private:
     using LongName = std::string_view;
     using Key = std::pair<ShortName, LongName>;
 
-    //std::unordered_map<ShortName, LongName> m_short_to_long;
-    std::unordered_map<Key, ArgumentBase*> m_args;
+    std::unordered_map<ShortName, LongName> m_short_to_long;
+    std::unordered_map<LongName, ShortName> m_long_to_short;
+    std::unordered_map<Key, ArgumentBase*>  m_args;
 };
 
 // template <typename T>
