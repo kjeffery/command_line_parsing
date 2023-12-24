@@ -66,22 +66,9 @@ public:
     virtual      ~ArgumentBase() = default;
     virtual void read(std::istream& ins) = 0;
 
-    [[nodiscard]] std::string_view get_short_name(this auto&& self) const noexcept
-    {
-        return self.m_data.short_name;
-    }
-
-    [[nodiscard]] std::string_view get_long_name() const noexcept
-    {
-        return m_data.long_name;
-    }
-
-    [[nodiscard]] std::string_view get_description() const noexcept
-    {
-        return m_data.description;
-    }
-
-    [[nodiscard]] bool set_by_user() const noexcept
+    [[nodiscard]] virtual std::string_view get_short_name() const noexcept = 0;
+    [[nodiscard]] virtual std::string_view get_long_name() const noexcept = 0;
+    [[nodiscard]] virtual std::string_view get_description() const noexcept = 0;
 };
 
 class SwitchArgument : public ArgumentBase
@@ -127,17 +114,17 @@ public:
         return m_data.value[idx];
     }
 
-    [[nodiscard]] std::string_view get_short_name() const noexcept
+    [[nodiscard]] std::string_view get_short_name() const noexcept override
     {
         return m_data.short_name;
     }
 
-    [[nodiscard]] std::string_view get_long_name() const noexcept
+    [[nodiscard]] std::string_view get_long_name() const noexcept override
     {
         return m_data.long_name;
     }
 
-    [[nodiscard]] std::string_view get_description() const noexcept
+    [[nodiscard]] std::string_view get_description() const noexcept override
     {
         return m_data.description;
     }
