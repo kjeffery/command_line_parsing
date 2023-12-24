@@ -7,7 +7,7 @@ struct Argument
     std::string_view short_name;
     std::string_view long_name;
     std::string_view description;
-    T value;
+    T                value;
 };
 
 class ArgumentBase
@@ -49,6 +49,8 @@ template <typename T>
 class ValueArgument : public ArgumentBase
 {
 public:
+    explicit ValueArgument(Argument<T> in);
+
     [[nodiscard]] ValueArgument* clone() const override
     {
         return new ValueArgument(*this);
@@ -95,12 +97,19 @@ private:
     std::unordered_map<std::string_view, std::unique_ptr<ArgumentBase>> m_long_to_arg;
 };
 
+// template <typename T>
+// ValueArgument(Argument<T>) -> ValueArgument<T>;
+
 int main(int argc, const char* argv[])
 {
     try {
+        const Argument<std::string> name_args = {
+            .short_name = "n", .long_name = "name", .description = "User name", .value = "Marcus"
+        };
+        ValueArgument name{name_args};
 
-        ValueArgument<std::string> name;
-        const auto                 x = name.clone();
+        //ValueArgument<std::string> name{name_args};
+        const auto x = name.clone();
     } catch (const std::exception& e) {
     }
 }
