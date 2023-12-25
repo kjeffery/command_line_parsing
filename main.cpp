@@ -152,6 +152,11 @@ public:
         m_set_by_user = true;
     }
 
+    [[nodiscard]] bool is_positional() const
+    {
+        return is_positional_impl();
+    }
+
     [[nodiscard]] std::string_view get_short_name() const noexcept
     {
         return m_params.short_name;
@@ -183,7 +188,8 @@ public:
     }
 
 private:
-    virtual void read_impl(Iterator first, Iterator last) = 0;
+    virtual void               read_impl(Iterator first, Iterator last) = 0;
+    [[nodiscard]] virtual bool is_positional_impl() const = 0;
 
     bool           m_set_by_user{ false };
     ArgumentParams m_params;
@@ -197,11 +203,6 @@ public:
     {
     }
 
-    void read_impl(Iterator, Iterator) override
-    {
-        m_value = true;
-    }
-
     [[nodiscard]] bool get() const noexcept
     {
         return m_value;
@@ -213,6 +214,16 @@ public:
     }
 
 private:
+    void read_impl(Iterator, Iterator) override
+    {
+        m_value = true;
+    }
+
+    [[nodiscard]] bool is_positional_impl() const override
+    {
+        return false;
+    }
+
     bool m_value{ false };
 };
 
@@ -235,6 +246,11 @@ private:
         ++m_value;
     }
 
+    [[nodiscard]] bool is_positional_impl() const override
+    {
+        return false;
+    }
+
     std::size_t m_value{ 0 };
 };
 
@@ -248,6 +264,12 @@ public:
     {
     }
 
+    [[nodiscard]] const T& get() const noexcept
+    {
+        return m_value;
+    }
+
+private:
     void read_impl(Iterator first, Iterator last) override
     {
         assert(std::distance(first, last) == 1);
@@ -263,12 +285,11 @@ public:
         ins >> m_value;
     }
 
-    [[nodiscard]] const T& get() const noexcept
+    [[nodiscard]] bool is_positional_impl() const override
     {
-        return m_value;
+        return false;
     }
 
-private:
     T m_value;
 };
 
@@ -282,28 +303,6 @@ public:
     {
     }
 
-    void read_impl(Iterator first, Iterator last) override
-    {
-        if (!this->set_by_user()) {
-            // Get rid of default values on first read.
-            m_values.clear();
-        }
-        for (; first != last; ++first) {
-#if defined(__cpp_lib_spanstream)
-            std::span<const char> span_view(*first);
-            std::ispanstream      ins(span_view);
-#elif defined(__cpp_lib_sstream_from_string_view)
-            std::istringstream ins(s);
-#else
-            std::istringstream ins(std::string(s));
-#endif
-
-            T t;
-            ins >> t;
-            m_values.push_back(std::move(t));
-        }
-    }
-
     [[nodiscard]] const T& get(std::size_t idx) const noexcept
     {
         return m_values[idx];
@@ -340,6 +339,33 @@ public:
     }
 
 private:
+    void read_impl(Iterator first, Iterator last) override
+    {
+        if (!this->set_by_user()) {
+            // Get rid of default values on first read.
+            m_values.clear();
+        }
+        for (; first != last; ++first) {
+#if defined(__cpp_lib_spanstream)
+            std::span<const char> span_view(*first);
+            std::ispanstream      ins(span_view);
+#elif defined(__cpp_lib_sstream_from_string_view)
+            std::istringstream ins(s);
+#else
+            std::istringstream ins(std::string(s));
+#endif
+
+            T t;
+            ins >> t;
+            m_values.push_back(std::move(t));
+        }
+    }
+
+    [[nodiscard]] bool is_positional_impl() const override
+    {
+        return false;
+    }
+
     std::vector<T> m_values;
 };
 
@@ -353,6 +379,12 @@ public:
     {
     }
 
+    [[nodiscard]] const T& get() const noexcept
+    {
+        return m_value;
+    }
+
+private:
     void read_impl(Iterator first, Iterator last) override
     {
         assert(std::distance(first, last) == 1);
@@ -368,12 +400,11 @@ public:
         ins >> m_value;
     }
 
-    [[nodiscard]] const T& get() const noexcept
+    [[nodiscard]] bool is_positional_impl() const override
     {
-        return m_value;
+        return true;
     }
 
-private:
     T m_value;
 };
 
@@ -385,28 +416,6 @@ public:
     : ArgumentBase{ ArgumentParams{ std::move(p) } }
     , m_values{ default_values.begin(), default_values.end() }
     {
-    }
-
-    void read_impl(Iterator first, Iterator last) override
-    {
-        if (!this->set_by_user()) {
-            // Get rid of default values on first read.
-            m_values.clear();
-        }
-        for (; first != last; ++first) {
-#if defined(__cpp_lib_spanstream)
-            std::span<const char> span_view(*first);
-            std::ispanstream      ins(span_view);
-#elif defined(__cpp_lib_sstream_from_string_view)
-            std::istringstream ins(s);
-#else
-            std::istringstream ins(std::string(s));
-#endif
-
-            T t;
-            ins >> t;
-            m_values.push_back(std::move(t));
-        }
     }
 
     [[nodiscard]] const T& get(std::size_t idx) const noexcept
@@ -445,6 +454,33 @@ public:
     }
 
 private:
+    void read_impl(Iterator first, Iterator last) override
+    {
+        if (!this->set_by_user()) {
+            // Get rid of default values on first read.
+            m_values.clear();
+        }
+        for (; first != last; ++first) {
+#if defined(__cpp_lib_spanstream)
+            std::span<const char> span_view(*first);
+            std::ispanstream      ins(span_view);
+#elif defined(__cpp_lib_sstream_from_string_view)
+            std::istringstream ins(s);
+#else
+            std::istringstream ins(std::string(s));
+#endif
+
+            T t;
+            ins >> t;
+            m_values.push_back(std::move(t));
+        }
+    }
+
+    [[nodiscard]] bool is_positional_impl() const override
+    {
+        return true;
+    }
+
     std::vector<T> m_values;
 };
 
