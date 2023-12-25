@@ -309,9 +309,34 @@ public:
         return m_values[idx];
     }
 
+    [[nodiscard]] std::size_t size() const noexcept
+    {
+        return m_values.size();
+    }
+
     bool is_variable_length() const noexcept
     {
         return get_min_arg_count() != get_max_arg_count();
+    }
+
+    auto begin() const
+    {
+        return m_values.cbegin();
+    }
+
+    auto end() const
+    {
+        return m_values.cend();
+    }
+
+    auto cbegin() const
+    {
+        return m_values.cbegin();
+    }
+
+    auto cend() const
+    {
+        return m_values.cend();
     }
 
 private:
@@ -319,18 +344,108 @@ private:
 };
 
 template <typename T>
-class PositionalArguments
+class SinglePositionalArgument final : public ArgumentBase
 {
 public:
-    [[nodiscard]] std::size_t size() const noexcept;
+    explicit SinglePositionalArgument(SinglePositionalArgumentParams p, T default_value = T{})
+    : ArgumentBase{ ArgumentParams{ std::move(p) } }
+    , m_value{ std::move(default_value) }
+    {
+    }
 
-    auto begin() const;
-    auto end() const;
-    auto cbegin() const;
-    auto cend() const;
+    void read_impl(Iterator first, Iterator last) override
+    {
+        assert(std::distance(first, last) == 1);
+#if defined(__cpp_lib_spanstream)
+        std::span<const char> span_view(*first);
+        std::ispanstream      ins(span_view);
+#elif defined(__cpp_lib_sstream_from_string_view)
+        std::istringstream ins(s);
+#else
+        std::istringstream ins(std::string(s));
+#endif
+
+        ins >> m_value;
+    }
+
+    [[nodiscard]] const T& get() const noexcept
+    {
+        return m_value;
+    }
 
 private:
-    //std::vector<T> m_data;
+    T m_value;
+};
+
+template <typename T>
+class ListPositionalArguments final : ArgumentBase
+{
+public:
+    explicit ListPositionalArguments(ListPositionalArgumentParams p, std::initializer_list<T> default_values = {})
+    : ArgumentBase{ ArgumentParams{ std::move(p) } }
+    , m_values{ default_values.begin(), default_values.end() }
+    {
+    }
+
+    void read_impl(Iterator first, Iterator last) override
+    {
+        if (!this->set_by_user()) {
+            // Get rid of default values on first read.
+            m_values.clear();
+        }
+        for (; first != last; ++first) {
+#if defined(__cpp_lib_spanstream)
+            std::span<const char> span_view(*first);
+            std::ispanstream      ins(span_view);
+#elif defined(__cpp_lib_sstream_from_string_view)
+            std::istringstream ins(s);
+#else
+            std::istringstream ins(std::string(s));
+#endif
+
+            T t;
+            ins >> t;
+            m_values.push_back(std::move(t));
+        }
+    }
+
+    [[nodiscard]] const T& get(std::size_t idx) const noexcept
+    {
+        return m_values[idx];
+    }
+
+    [[nodiscard]] std::size_t size() const noexcept
+    {
+        return m_values.size();
+    }
+
+    bool is_variable_length() const noexcept
+    {
+        return get_min_arg_count() != get_max_arg_count();
+    }
+
+    auto begin() const
+    {
+        return m_values.cbegin();
+    }
+
+    auto end() const
+    {
+        return m_values.cend();
+    }
+
+    auto cbegin() const
+    {
+        return m_values.cbegin();
+    }
+
+    auto cend() const
+    {
+        return m_values.cend();
+    }
+
+private:
+    std::vector<T> m_values;
 };
 
 std::size_t get_number_available_sub_args(Iterator first, Iterator last)
