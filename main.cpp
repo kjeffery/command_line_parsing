@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <iostream>
 #include <limits>
+#include <sstream>
 #include <string_view>
 #include <thread>
 #include <unordered_map>
@@ -64,17 +65,18 @@ class ArgumentBase
 {
 public:
     virtual      ~ArgumentBase() = default;
-    virtual void read(std::istream& ins) = 0;
+    virtual void read(const char* argv[]) = 0;
 
     [[nodiscard]] virtual std::string_view get_short_name() const noexcept = 0;
     [[nodiscard]] virtual std::string_view get_long_name() const noexcept = 0;
     [[nodiscard]] virtual std::string_view get_description() const noexcept = 0;
+    [[nodiscard]] virtual std::size_t      get_count() const noexcept { return 1; }
 };
 
 class SwitchArgument : public ArgumentBase
 {
 public:
-    void read(std::istream& ins) override
+    void read(const char* argv[]) override
     {
     }
 
@@ -101,10 +103,12 @@ public:
     {
     }
 
-    void read(std::istream& ins) override
+    void read(const char* argv[]) override
     {
         m_set_by_user = true;
         for (std::size_t i = 0; i < count; ++i) {
+            // TODO: use buffered stream
+            std::istringstream ins(argv[i]);
             ins >> m_data.value[i];
         }
     }
@@ -127,6 +131,11 @@ public:
     [[nodiscard]] std::string_view get_description() const noexcept override
     {
         return m_data.description;
+    }
+
+    [[nodiscard]] std::size_t get_count() const noexcept override
+    {
+        return count;
     }
 
     [[nodiscard]] bool set_by_user() const noexcept
@@ -160,11 +169,35 @@ public:
     void parse(const int argc, const char* argv[])
     {
         for (int i = 1; i < argc; ++i) {
-            std::string_view s(argv[i]);
+            const std::string_view s(argv[i]);
             if (s.starts_with("--")) {
-                // Read into saved argument
+                auto long_name = s;
+                long_name.remove_prefix(2); // Remove "--"
+                const auto short_name = m_long_to_short.at(long_name);
+
+                auto* obj = m_args.at(Key{ short_name, long_name });
+
+                const auto num_sub_arguments = obj->get_count();
+
+                // TODO: check bounds
+
+                obj->read(argv + i + 1); // Skip over this value
+                i += num_sub_arguments;
             } else if (s.starts_with('-')) {
-            }
+                auto short_name = s;
+                short_name.remove_prefix(1); // Remove '-'
+                const auto long_name = m_short_to_long.at(short_name);
+
+                auto* obj = m_args.at(Key{ short_name, long_name });
+
+                ++i; // We've read this argument
+                const auto num_sub_arguments = obj->get_count();
+
+                // TODO: check bounds
+
+                obj->read(argv + i + 1); // Skip over this value
+                i += num_sub_arguments;
+            } // TODO: else positionals
         }
     }
 
@@ -190,7 +223,7 @@ public:
                 throw 9; // TODO: already exists
             }
         }
-        m_args.emplace(Key{short_name, long_name}, std::addressof(argument));
+        m_args.emplace(Key{ short_name, long_name }, std::addressof(argument));
     }
 
 private:
@@ -235,7 +268,7 @@ int main(int argc, const char* argv[])
 
         parser.parse(argc, argv);
 
-        std::println(std::cout, "Got name: {}", name.get());
+        std::println(std::cout, "Got name: {} threads: {}, resolution {}x{}", name.get(), threads.get(), resolution.get(0), resolution.get(1));
     } catch (const std::exception& e) {
     }
 }
