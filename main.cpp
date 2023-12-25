@@ -3,35 +3,50 @@
 #include <iostream>
 #include <limits>
 #include <map>
+#include <ostream>
+#include <span>
 #include <sstream>
 #include <string_view>
 #include <thread>
+#include <vector>
 
-template <typename T, std::size_t size = 1>
+#if __has_include(<spanstream>)
+#    include <spanstream>
+#endif
+
+using ArgumentContainer = std::vector<std::string_view>;
+using Iterator = ArgumentContainer::const_iterator;
+
+template <typename T>
 struct Argument
 {
-    std::string_view    short_name{};
-    std::string_view    long_name{};
-    std::string_view    description{};
-    std::array<T, size> value{};
+    std::string_view short_name{};
+    std::string_view long_name{};
+    std::string_view description{};
+    std::vector<T>   value{};
+    std::size_t      min_values{ 1 };
+    std::size_t      max_values{ 1 };
+    bool             user_input_required{ false };
 };
 
 class ArgumentBase
 {
 public:
     virtual      ~ArgumentBase() = default;
-    virtual void read(const char* argv[]) = 0;
+    virtual void read(Iterator first, Iterator last) = 0;
 
     [[nodiscard]] virtual std::string_view get_short_name() const noexcept = 0;
     [[nodiscard]] virtual std::string_view get_long_name() const noexcept = 0;
     [[nodiscard]] virtual std::string_view get_description() const noexcept = 0;
     [[nodiscard]] virtual std::size_t      get_count() const noexcept { return 1; }
+    [[nodiscard]] virtual std::size_t      get_min_arg_count() const noexcept { return 1; }
+    [[nodiscard]] virtual std::size_t      get_max_arg_count() const noexcept { return 1; }
 };
 
 class SwitchArgument : public ArgumentBase
 {
 public:
-    void read(const char* argv[]) override
+    void read(Iterator first, Iterator last) override
     {
     }
 
@@ -49,22 +64,33 @@ private:
     bool m_value{ false };
 };
 
-template <typename T, std::size_t count = 1>
+template <typename T>
 class ValueArgument : public ArgumentBase
 {
 public:
-    explicit ValueArgument(Argument<T, count> in)
-    : m_data(std::move(in))
+    explicit ValueArgument(Argument<T> in, std::size_t min_args = 1, std::size_t max_args = 1)
+    : m_min_args{ min_args }
+    , m_max_args{ max_args }
+    , m_data(std::move(in))
     {
     }
 
-    void read(const char* argv[]) override
+    void read(Iterator first, Iterator last) override
     {
         m_set_by_user = true;
-        for (std::size_t i = 0; i < count; ++i) {
-            // TODO: use buffered stream
-            std::istringstream ins(argv[i]);
-            ins >> m_data.value[i];
+        for (; first != last; ++first) {
+#if defined(__cpp_lib_spanstream)
+            std::span<const char> span_view(*first);
+            std::ispanstream      ins(span_view);
+#elif defined(__cpp_lib_sstream_from_string_view)
+    std::istringstream ins(s);
+#else
+    std::istringstream ins(std::string(s));
+#endif
+
+            T t;
+            ins >> t;
+            m_data.value.push_back(std::move(t));
         }
     }
 
@@ -90,7 +116,7 @@ public:
 
     [[nodiscard]] std::size_t get_count() const noexcept override
     {
-        return count;
+        return m_data.value.size();
     }
 
     [[nodiscard]] bool set_by_user() const noexcept
@@ -98,9 +124,21 @@ public:
         return m_set_by_user;
     }
 
+    [[nodiscard]] std::size_t get_min_arg_count() const noexcept override
+    {
+        return m_min_args;
+    }
+
+    [[nodiscard]] std::size_t get_max_arg_count() const noexcept override
+    {
+        return m_max_args;
+    }
+
 private:
-    bool               m_set_by_user{ false };
-    Argument<T, count> m_data;
+    bool        m_set_by_user{ false };
+    std::size_t m_min_args{ 1 };
+    std::size_t m_max_args{ 1 };
+    Argument<T> m_data;
 };
 
 template <typename T>
@@ -118,45 +156,53 @@ private:
     //std::vector<T> m_data;
 };
 
+std::size_t get_number_available_sub_args(Iterator first, Iterator last)
+{
+    // Precondition: first does not point to the leading argument.
+    // E.g. for "--resolution", "800", "600" we pass in "800", "600"
+    std::size_t count{ 0 };
+    for (; first != last; ++first) {
+        if (first->starts_with('-')) {
+            return count;
+        }
+    }
+    return count;
+}
+
 class CommandLineParser
 {
 public:
-    void parse(const int argc, const char* argv[])
+    void parse(const ArgumentContainer& argc)
     {
-        for (int i = 1; i < argc; ++i) {
-            const std::string_view s(argv[i]);
-            if (s.starts_with("--")) {
-                auto long_name = s;
+        // Precondition: the executable name has been removed from argc
+        auto first = argc.cbegin();
+        auto last  = argc.cend();
+
+        while (first != last) {
+            const std::string_view& arg = *first;
+            if (arg == "--") {
+                // Do positional parsing
+            } else if (arg.starts_with("--")) {
+                auto long_name = arg;
                 long_name.remove_prefix(2); // Remove "--"
                 const auto short_name = m_long_to_short.at(long_name);
 
                 auto* obj = m_args.at(Key{ short_name, long_name });
 
-                const auto num_sub_arguments = obj->get_count();
-
-                // TODO: check bounds
-
-                obj->read(argv + i + 1); // Skip over this value
-                i += num_sub_arguments;
-            } else if (s.starts_with('-')) {
-                auto short_name = s;
+                first = parse_sub_arguments(obj, first, last);
+            } else if (arg.starts_with('-')) {
+                auto short_name = arg;
                 short_name.remove_prefix(1); // Remove '-'
                 const auto long_name = m_short_to_long.at(short_name);
 
                 auto* obj = m_args.at(Key{ short_name, long_name });
 
-                ++i; // We've read this argument
-                const auto num_sub_arguments = obj->get_count();
-
-                // TODO: check bounds
-
-                obj->read(argv + i + 1); // Skip over this value
-                i += num_sub_arguments;
+                first = parse_sub_arguments(obj, first, last);
             } // TODO: else positionals
         }
     }
 
-    void print_help();
+    void print_help(std::string_view program_name);
 
     void add(ArgumentBase& argument)
     {
@@ -182,6 +228,21 @@ public:
     }
 
 private:
+    Iterator parse_sub_arguments(ArgumentBase* obj, Iterator first, Iterator last)
+    {
+        const auto min_num_sub_arguments       = obj->get_min_arg_count();
+        const auto num_available_sub_arguments = get_number_available_sub_args(first + 1, last);
+
+        if (num_available_sub_arguments < min_num_sub_arguments) {
+            throw 82;
+        }
+
+        const auto max_num_sub_arguments = obj->get_max_arg_count();
+        const auto number_to_read        = std::min(max_num_sub_arguments, num_available_sub_arguments);
+        obj->read(first + 1, last + number_to_read); // Skip over this value
+        return last + number_to_read;
+    }
+
     using ShortName = std::string_view;
     using LongName = std::string_view;
     using Key = std::pair<ShortName, LongName>;
@@ -191,27 +252,37 @@ private:
     std::map<Key, ArgumentBase*>  m_args;
 };
 
-// template <typename T>
-// ValueArgument(Argument<T>) -> ValueArgument<T>;
+std::vector<std::string_view> to_string_views(std::span<const char*> sub_argv)
+{
+    std::vector<std::string_view> result;
+    result.reserve(sub_argv.size());
+    for (auto s: sub_argv) {
+        result.emplace_back(s);
+    }
+    return result;
+}
+
+std::vector<std::string_view> to_string_views_discard_first(std::span<const char*> argv);
 
 int main(int argc, const char* argv[])
 {
+    using namespace std::literals;
     try {
         const auto default_threads = std::thread::hardware_concurrency();
 
         CommandLineParser parser;
 
         const Argument<std::string> name_args = {
-            .short_name = "n", .long_name = "name", .description = "User name", .value = "Marcus"
+            .short_name = "n", .long_name = "name", .description = "User name", .value = { "Marcus"s }
         };
         ValueArgument name{ name_args };
 
         const Argument<std::size_t> thread_args = {
-            .long_name = "threads", .description = "Number of threads", .value = default_threads
+            .long_name = "threads", .description = "Number of threads", .value = { default_threads }
         };
         ValueArgument threads{ thread_args };
 
-        const Argument<std::size_t, 2> resolution_args = {
+        const Argument<std::size_t> resolution_args = {
             .short_name = "r", .long_name = "resolution", .description = "Number of threads", .value = { 800, 600 }
         };
 
@@ -221,7 +292,9 @@ int main(int argc, const char* argv[])
         parser.add(threads);
         parser.add(resolution);
 
-        parser.parse(argc, argv);
+        std::string_view program_name{ argv[0] };
+        const auto       arg_list = to_string_views(std::span{ argv + 1, static_cast<std::size_t>(argc) - 1 });
+        parser.parse(arg_list);
 
         std::println(std::cout,
                      "Got name: {} threads: {}, resolution {}x{}",
