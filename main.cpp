@@ -68,15 +68,17 @@ template <typename T>
 class ValueArgument : public ArgumentBase
 {
 public:
-    explicit ValueArgument(Argument<T> in, std::size_t min_args = 1, std::size_t max_args = 1)
-    : m_min_args{ min_args }
-    , m_max_args{ max_args }
-    , m_data(std::move(in))
+    explicit ValueArgument(Argument<T> in)
+    : m_data(std::move(in))
     {
     }
 
     void read(Iterator first, Iterator last) override
     {
+        if (!m_set_by_user) {
+            // Get rid of default values on first read.
+            m_data.value.clear();
+        }
         m_set_by_user = true;
         for (; first != last; ++first) {
 #if defined(__cpp_lib_spanstream)
@@ -126,18 +128,16 @@ public:
 
     [[nodiscard]] std::size_t get_min_arg_count() const noexcept override
     {
-        return m_min_args;
+        return m_data.min_values;
     }
 
     [[nodiscard]] std::size_t get_max_arg_count() const noexcept override
     {
-        return m_max_args;
+        return m_data.max_values;
     }
 
 private:
     bool        m_set_by_user{ false };
-    std::size_t m_min_args{ 1 };
-    std::size_t m_max_args{ 1 };
     Argument<T> m_data;
 };
 
@@ -165,6 +165,7 @@ std::size_t get_number_available_sub_args(Iterator first, Iterator last)
         if (first->starts_with('-')) {
             return count;
         }
+        ++count;
     }
     return count;
 }
@@ -239,8 +240,8 @@ private:
 
         const auto max_num_sub_arguments = obj->get_max_arg_count();
         const auto number_to_read        = std::min(max_num_sub_arguments, num_available_sub_arguments);
-        obj->read(first + 1, last + number_to_read); // Skip over this value
-        return last + number_to_read;
+        obj->read(first + 1, first + 1 + number_to_read); // Skip over this value
+        return first + 1 + number_to_read;
     }
 
     using ShortName = std::string_view;
@@ -283,7 +284,8 @@ int main(int argc, const char* argv[])
         ValueArgument threads{ thread_args };
 
         const Argument<std::size_t> resolution_args = {
-            .short_name = "r", .long_name = "resolution", .description = "Number of threads", .value = { 800, 600 }
+            .short_name = "r", .long_name = "resolution", .description = "Number of threads", .value = { 800, 600 },
+            .min_values = 2, .max_values = 2
         };
 
         ValueArgument resolution{ resolution_args };
