@@ -1,4 +1,5 @@
 #include <array>
+#include <cassert>
 #include <cstdint>
 #include <iostream>
 #include <limits>
@@ -17,21 +18,132 @@
 using ArgumentContainer = std::vector<std::string_view>;
 using Iterator = ArgumentContainer::const_iterator;
 
-template <typename T>
-struct Argument
+struct SingleValueArgumentParams
 {
     std::string_view short_name{};
     std::string_view long_name{};
     std::string_view description{};
-    std::vector<T>   value{};
+    bool             user_input_required{ false };
+};
+
+struct ListValueArgumentParams
+{
+    std::string_view short_name{};
+    std::string_view long_name{};
+    std::string_view description{};
     std::size_t      min_values{ 1 };
     std::size_t      max_values{ 1 };
     bool             user_input_required{ false };
 };
 
+struct CountingArgumentParams
+{
+    std::string_view short_name{};
+    std::string_view long_name{};
+    std::string_view description{};
+    bool             user_input_required{ false };
+};
+
+struct SwitchArgumentParams
+{
+    std::string_view short_name{};
+    std::string_view long_name{};
+    std::string_view description{};
+    bool             user_input_required{ false };
+};
+
+struct SinglePositionalArgumentParams
+{
+    std::string_view description{};
+    bool             user_input_required{ false };
+};
+
+struct ListPositionalArgumentParams
+{
+    std::string_view description{};
+    std::size_t      min_values{ 0 };
+    std::size_t      max_values{ std::numeric_limits<std::size_t>::max() };
+    bool             user_input_required{ false };
+};
+
+struct ArgumentParams
+{
+    explicit ArgumentParams(SingleValueArgumentParams p) noexcept
+    : short_name{ std::move(p.short_name) }
+    , long_name{ std::move(p.long_name) }
+    , description{ std::move(p.description) }
+    , min_values{ 1 }
+    , max_values{ 1 }
+    , user_input_required{ p.user_input_required }
+    {
+    }
+
+    explicit ArgumentParams(ListValueArgumentParams p) noexcept
+    : short_name{ std::move(p.short_name) }
+    , long_name{ std::move(p.long_name) }
+    , description{ std::move(p.description) }
+    , min_values{ p.min_values }
+    , max_values{ p.max_values }
+    , user_input_required{ p.user_input_required }
+    {
+    }
+
+    explicit ArgumentParams(CountingArgumentParams p) noexcept
+    : short_name{ std::move(p.short_name) }
+    , long_name{ std::move(p.long_name) }
+    , description{ std::move(p.description) }
+    , min_values{ 0 }
+    , max_values{ 0 }
+    , user_input_required{ p.user_input_required }
+    {
+    }
+
+    explicit ArgumentParams(SwitchArgumentParams p) noexcept
+    : short_name{ std::move(p.short_name) }
+    , long_name{ std::move(p.long_name) }
+    , description{ std::move(p.description) }
+    , min_values{ 0 }
+    , max_values{ 0 }
+    , user_input_required{ p.user_input_required }
+    {
+    }
+
+    explicit ArgumentParams(SinglePositionalArgumentParams p) noexcept
+    : short_name{}
+    , long_name{}
+    , description{ std::move(p.description) }
+    , min_values{ 1 }
+    , max_values{ 1 }
+    , user_input_required{ p.user_input_required }
+    {
+    }
+
+    explicit ArgumentParams(ListPositionalArgumentParams p) noexcept
+    : short_name{}
+    , long_name{}
+    , description{ std::move(p.description) }
+    , min_values{ p.min_values }
+    , max_values{ p.max_values }
+    , user_input_required{ p.user_input_required }
+    {
+    }
+
+    std::string_view short_name;
+    std::string_view long_name;
+    std::string_view description;
+    std::size_t      min_values;
+    std::size_t      max_values;
+    bool             user_input_required;
+};
+
 class ArgumentBase
 {
 public:
+    explicit ArgumentBase(ArgumentParams p)
+    : m_params{ std::move(p) }
+    {
+    }
+
     virtual ~ArgumentBase() = default;
 
     void read(Iterator first, Iterator last)
@@ -42,32 +154,27 @@ public:
 
     [[nodiscard]] std::string_view get_short_name() const noexcept
     {
-        return get_short_name_impl();
+        return m_params.short_name;
     }
 
     [[nodiscard]] std::string_view get_long_name() const noexcept
     {
-        return get_long_name_impl();
+        return m_params.long_name;
     }
 
     [[nodiscard]] std::string_view get_description() const noexcept
     {
-        return get_description_impl();
-    }
-
-    [[nodiscard]] std::size_t get_count() const noexcept
-    {
-        return get_count_impl();
+        return m_params.description;
     }
 
     [[nodiscard]] std::size_t get_min_arg_count() const noexcept
     {
-        return get_min_arg_count_impl();
+        return m_params.min_values;
     }
 
     [[nodiscard]] std::size_t get_max_arg_count() const noexcept
     {
-        return get_max_arg_count_impl();
+        return m_params.max_values;
     }
 
     [[nodiscard]] bool set_by_user() const noexcept
@@ -78,91 +185,15 @@ public:
 private:
     virtual void read_impl(Iterator first, Iterator last) = 0;
 
-    [[nodiscard]] virtual std::string_view get_short_name_impl() const noexcept = 0;
-    [[nodiscard]] virtual std::string_view get_long_name_impl() const noexcept = 0;
-    [[nodiscard]] virtual std::string_view get_description_impl() const noexcept = 0;
-    [[nodiscard]] virtual std::size_t      get_count_impl() const noexcept = 0;
-    [[nodiscard]] virtual std::size_t      get_min_arg_count_impl() const noexcept = 0;
-    [[nodiscard]] virtual std::size_t      get_max_arg_count_impl() const noexcept = 0;
-
-    bool m_set_by_user{ false };
+    bool           m_set_by_user{ false };
+    ArgumentParams m_params;
 };
 
-template <typename T>
-class TypedArgumentBase : public ArgumentBase
+class SwitchArgument final : public ArgumentBase
 {
 public:
-    explicit TypedArgumentBase(Argument<T> a)
-    : m_data(std::move(a))
-    {
-    }
-
-    void clear()
-    {
-        m_data.value.clear();
-    }
-
-protected:
-    template <typename... Args>
-    void emplace_back(Args&&... t)
-    {
-        m_data.value.emplace_back(std::forward<T>(t)...);
-    }
-
-    void push_back(const T& t)
-    {
-        m_data.value.push_back(t);
-    }
-
-    void push_back(T&& t)
-    {
-        m_data.value.push_back(std::move(t));
-    }
-
-    [[nodiscard]] const T& get(std::size_t idx = 0) const noexcept
-    {
-        return m_data.value[idx];
-    }
-
-private:
-    [[nodiscard]] std::string_view get_short_name_impl() const noexcept override
-    {
-        return m_data.short_name;
-    }
-
-    [[nodiscard]] std::string_view get_long_name_impl() const noexcept override
-    {
-        return m_data.long_name;
-    }
-
-    [[nodiscard]] std::string_view get_description_impl() const noexcept override
-    {
-        return m_data.description;
-    }
-
-    [[nodiscard]] std::size_t get_count_impl() const noexcept override
-    {
-        return m_data.value.size();
-    }
-
-    [[nodiscard]] std::size_t get_min_arg_count_impl() const noexcept override
-    {
-        return m_data.min_values;
-    }
-
-    [[nodiscard]] std::size_t get_max_arg_count_impl() const noexcept override
-    {
-        return m_data.max_values;
-    }
-
-    Argument<T> m_data;
-};
-
-class SwitchArgument : public TypedArgumentBase<bool>
-{
-public:
-    explicit SwitchArgument(Argument<bool> a)
-    : TypedArgumentBase<bool>{ std::move(a) }
+    explicit SwitchArgument(SwitchArgumentParams a)
+    : ArgumentBase{ ArgumentParams{ std::move(a) } }
     {
     }
 
@@ -185,11 +216,11 @@ private:
     bool m_value{ false };
 };
 
-class CountingArgument : public TypedArgumentBase<std::size_t>
+class CountingArgument final : public ArgumentBase
 {
 public:
-    explicit CountingArgument(Argument<std::size_t> a)
-    : TypedArgumentBase<std::size_t>{ std::move(a) }
+    explicit CountingArgument(CountingArgumentParams a)
+    : ArgumentBase{ ArgumentParams{ std::move(a) } }
     {
     }
 
@@ -208,11 +239,46 @@ private:
 };
 
 template <typename T>
-class ValueArgument : public TypedArgumentBase<T>
+class SingleValueArgument final : public ArgumentBase
 {
 public:
-    explicit ValueArgument(Argument<T> in)
-    : TypedArgumentBase<T>{ std::move(in) }
+    explicit SingleValueArgument(SingleValueArgumentParams p, T default_value = T{})
+    : ArgumentBase{ ArgumentParams{ std::move(p) } }
+    , m_value{ std::move(default_value) }
+    {
+    }
+
+    void read_impl(Iterator first, Iterator last) override
+    {
+        assert(std::distance(first, last) == 1);
+#if defined(__cpp_lib_spanstream)
+        std::span<const char> span_view(*first);
+        std::ispanstream      ins(span_view);
+#elif defined(__cpp_lib_sstream_from_string_view)
+        std::istringstream ins(s);
+#else
+        std::istringstream ins(std::string(s));
+#endif
+
+        ins >> m_value;
+    }
+
+    [[nodiscard]] const T& get() const noexcept
+    {
+        return m_value;
+    }
+
+private:
+    T m_value;
+};
+
+template <typename T>
+class ListValueArgument final : public ArgumentBase
+{
+public:
+    explicit ListValueArgument(ListValueArgumentParams p, std::initializer_list<T> default_values = {})
+    : ArgumentBase{ ArgumentParams{ std::move(p) } }
+    , m_values{ default_values.begin(), default_values.end() }
     {
     }
 
@@ -220,28 +286,31 @@ public:
     {
         if (!this->set_by_user()) {
             // Get rid of default values on first read.
-            this->clear();
+            m_values.clear();
         }
         for (; first != last; ++first) {
 #if defined(__cpp_lib_spanstream)
             std::span<const char> span_view(*first);
             std::ispanstream      ins(span_view);
 #elif defined(__cpp_lib_sstream_from_string_view)
-    std::istringstream ins(s);
+            std::istringstream ins(s);
 #else
-    std::istringstream ins(std::string(s));
+            std::istringstream ins(std::string(s));
 #endif
 
             T t;
             ins >> t;
-            this->push_back(std::move(t));
+            m_values.push_back(std::move(t));
         }
     }
 
-    [[nodiscard]] const T& get(std::size_t idx = 0) const noexcept
+    [[nodiscard]] const T& get(std::size_t idx) const noexcept
     {
-        return TypedArgumentBase<T>::get(idx);
+        return m_values[idx];
     }
+
+private:
+    std::vector<T> m_values;
 };
 
 template <typename T>
@@ -374,26 +443,31 @@ int main(int argc, const char* argv[])
 
         CommandLineParser parser;
 
-        const Argument<std::string> name_args = {
-            .short_name = "n", .long_name = "name", .description = "User name", .value = { "Marcus"s }
+        const SingleValueArgumentParams name_args = {
+            .short_name = "n", .long_name = "name", .description = "User name"
         };
-        ValueArgument name{ name_args };
+        SingleValueArgument<std::string> name{ name_args, "Marcus" };
 
-        const Argument<std::size_t> thread_args = {
-            .long_name = "threads", .description = "Number of threads", .value = { default_threads }
+        const SingleValueArgumentParams thread_args = {
+            .long_name = "threads", .description = "Number of threads"
         };
-        ValueArgument threads{ thread_args };
+        SingleValueArgument<std::size_t> threads{ thread_args, default_threads };
 
-        const Argument<std::size_t> resolution_args = {
-            .short_name = "r", .long_name = "resolution", .description = "Number of threads", .value = { 800, 600 },
-            .min_values = 2, .max_values = 2
+        const ListValueArgumentParams resolution_args = {
+            .short_name = "r", .long_name = "resolution", .description = "Number of threads",
+            .min_values = 2,
+            .max_values = 2
         };
-        ValueArgument resolution{ resolution_args };
+        ListValueArgument<std::size_t> resolution{ resolution_args, { 800, 600 } };
 
-        const Argument<std::size_t> verbosity_args = {
+        const CountingArgumentParams verbosity_args = {
             .short_name = "v", .description = "Verbosity level"
         };
         CountingArgument verbosity{ verbosity_args };
+
+        const SwitchArgumentParams;
+        const SinglePositionalArgumentParams;
+        const ListPositionalArgumentParams;
 
         parser.add(name);
         parser.add(threads);
