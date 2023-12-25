@@ -46,8 +46,9 @@ public:
 class SwitchArgument : public ArgumentBase
 {
 public:
-    void read(Iterator first, Iterator last) override
+    void read(Iterator, Iterator) override
     {
+        m_value = true;
     }
 
     [[nodiscard]] bool get() const noexcept
