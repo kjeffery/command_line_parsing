@@ -1,6 +1,7 @@
 #include <array>
 #include <cassert>
 #include <cstdint>
+#include <filesystem>
 #include <iostream>
 #include <limits>
 #include <map>
@@ -409,7 +410,7 @@ private:
 };
 
 template <typename T>
-class ListPositionalArguments final : ArgumentBase
+class ListPositionalArguments final : public ArgumentBase
 {
 public:
     explicit ListPositionalArguments(ListPositionalArgumentParams p, std::initializer_list<T> default_values = {})
@@ -511,23 +512,29 @@ public:
             const std::string_view& arg = *first;
             if (arg == "--") {
                 // Do positional parsing
+                break;
             } else if (arg.starts_with("--")) {
                 auto long_name = arg;
                 long_name.remove_prefix(2); // Remove "--"
                 const auto short_name = m_long_to_short.at(long_name);
 
                 auto* obj = m_args.at(Key{ short_name, long_name });
+                assert(obj);
 
-                first = parse_sub_arguments(obj, first, last);
+                first = parse_sub_arguments(*obj, first, last);
             } else if (arg.starts_with('-')) {
                 auto short_name = arg;
                 short_name.remove_prefix(1); // Remove '-'
                 const auto long_name = m_short_to_long.at(short_name);
 
                 auto* obj = m_args.at(Key{ short_name, long_name });
+                assert(obj);
 
-                first = parse_sub_arguments(obj, first, last);
-            } // TODO: else positionals
+                first = parse_sub_arguments(*obj, first, last);
+            }
+        }
+        if (m_positional) {
+            parse_positionals(*m_positional, first, last);
         }
     }
 
@@ -535,6 +542,14 @@ public:
 
     void add(ArgumentBase& argument)
     {
+        if (argument.is_positional()) {
+            if (m_positional) {
+                throw 82; // TODO: already specified
+            }
+            m_positional = std::addressof(argument);
+            return;
+        }
+
         const auto short_name = argument.get_short_name();
         const auto long_name  = argument.get_long_name();
 
@@ -557,19 +572,36 @@ public:
     }
 
 private:
-    Iterator parse_sub_arguments(ArgumentBase* obj, Iterator first, Iterator last)
+    Iterator parse_sub_arguments(ArgumentBase& obj, Iterator first, Iterator last)
     {
-        const auto min_num_sub_arguments       = obj->get_min_arg_count();
+        const auto min_num_sub_arguments       = obj.get_min_arg_count();
         const auto num_available_sub_arguments = get_number_available_sub_args(first + 1, last);
 
         if (num_available_sub_arguments < min_num_sub_arguments) {
-            throw 82;
+            throw 28;
         }
 
-        const auto max_num_sub_arguments = obj->get_max_arg_count();
+        const auto max_num_sub_arguments = obj.get_max_arg_count();
         const auto number_to_read        = std::min(max_num_sub_arguments, num_available_sub_arguments);
-        obj->read(first + 1, first + 1 + number_to_read); // Skip over this value
+        obj.read(first + 1, first + 1 + number_to_read); // Skip over this value
         return first + 1 + number_to_read;
+    }
+
+    void parse_positionals(ArgumentBase& obj, Iterator first, Iterator last)
+    {
+        const auto min_num_sub_arguments       = obj.get_min_arg_count();
+        const auto num_available_sub_arguments = get_number_available_sub_args(first, last);
+
+        if (num_available_sub_arguments < min_num_sub_arguments) {
+            throw 882;
+        }
+
+        const auto max_num_sub_arguments = obj.get_max_arg_count();
+        if (num_available_sub_arguments > max_num_sub_arguments) {
+            throw 74;
+        }
+
+        obj.read(first, last);
     }
 
     using ShortName = std::string_view;
@@ -579,6 +611,7 @@ private:
     std::map<ShortName, LongName> m_short_to_long;
     std::map<LongName, ShortName> m_long_to_short;
     std::map<Key, ArgumentBase*>  m_args;
+    ArgumentBase*                 m_positional{ nullptr };
 };
 
 std::vector<std::string_view> to_string_views(std::span<const char*> sub_argv)
@@ -623,12 +656,16 @@ int main(int argc, const char* argv[])
 
         const SwitchArgumentParams;
         const SinglePositionalArgumentParams;
-        const ListPositionalArgumentParams;
+        const ListPositionalArgumentParams positional_args = {
+            .description = "File names"
+        };
+        ListPositionalArguments<std::filesystem::path> files{ positional_args };
 
         parser.add(name);
         parser.add(threads);
         parser.add(resolution);
         parser.add(verbosity);
+        parser.add(files);
 
         std::string_view program_name{ argv[0] };
         const auto       arg_list = to_string_views(std::span{ argv + 1, static_cast<std::size_t>(argc) - 1 });
@@ -641,6 +678,10 @@ int main(int argc, const char* argv[])
                      resolution.get(0),
                      resolution.get(1),
                      verbosity.get());
+
+        for (const auto& f: files) {
+            std::println(std::cout, "File: {}", f.string());
+        }
     } catch (const std::exception& e) {
     }
 }
