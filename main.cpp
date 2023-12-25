@@ -81,64 +81,42 @@ private:
     [[nodiscard]] virtual std::string_view get_short_name_impl() const noexcept = 0;
     [[nodiscard]] virtual std::string_view get_long_name_impl() const noexcept = 0;
     [[nodiscard]] virtual std::string_view get_description_impl() const noexcept = 0;
-    [[nodiscard]] virtual std::size_t      get_count_impl() const noexcept { return 1; }
-    [[nodiscard]] virtual std::size_t      get_min_arg_count_impl() const noexcept { return 1; }
-    [[nodiscard]] virtual std::size_t      get_max_arg_count_impl() const noexcept { return 1; }
+    [[nodiscard]] virtual std::size_t      get_count_impl() const noexcept = 0;
+    [[nodiscard]] virtual std::size_t      get_min_arg_count_impl() const noexcept = 0;
+    [[nodiscard]] virtual std::size_t      get_max_arg_count_impl() const noexcept = 0;
 
     bool m_set_by_user{ false };
 };
 
-class SwitchArgument : public ArgumentBase
-{
-public:
-    void read_impl(Iterator, Iterator) override
-    {
-        m_value = true;
-    }
-
-    [[nodiscard]] bool get() const noexcept
-    {
-        return m_value;
-    }
-
-    explicit operator bool() const noexcept
-    {
-        return m_value;
-    }
-
-private:
-    bool m_value{ false };
-};
-
 template <typename T>
-class ValueArgument : public ArgumentBase
+class TypedArgumentBase : public ArgumentBase
 {
 public:
-    explicit ValueArgument(Argument<T> in)
-    : m_data(std::move(in))
+    explicit TypedArgumentBase(Argument<T> a)
+    : m_data(std::move(a))
     {
     }
 
-    void read_impl(Iterator first, Iterator last) override
+    void clear()
     {
-        if (!set_by_user()) {
-            // Get rid of default values on first read.
-            m_data.value.clear();
-        }
-        for (; first != last; ++first) {
-#if defined(__cpp_lib_spanstream)
-            std::span<const char> span_view(*first);
-            std::ispanstream      ins(span_view);
-#elif defined(__cpp_lib_sstream_from_string_view)
-    std::istringstream ins(s);
-#else
-    std::istringstream ins(std::string(s));
-#endif
+        m_data.value.clear();
+    }
 
-            T t;
-            ins >> t;
-            m_data.value.push_back(std::move(t));
-        }
+protected:
+    template <typename... Args>
+    void emplace_back(Args&&... t)
+    {
+        m_data.value.emplace_back(std::forward<T>(t)...);
+    }
+
+    void push_back(const T& t)
+    {
+        m_data.value.push_back(t);
+    }
+
+    void push_back(T&& t)
+    {
+        m_data.value.push_back(std::move(t));
     }
 
     [[nodiscard]] const T& get(std::size_t idx = 0) const noexcept
@@ -146,6 +124,7 @@ public:
         return m_data.value[idx];
     }
 
+private:
     [[nodiscard]] std::string_view get_short_name_impl() const noexcept override
     {
         return m_data.short_name;
@@ -176,8 +155,93 @@ public:
         return m_data.max_values;
     }
 
-private:
     Argument<T> m_data;
+};
+
+class SwitchArgument : public TypedArgumentBase<bool>
+{
+public:
+    explicit SwitchArgument(Argument<bool> a)
+    : TypedArgumentBase<bool>{ std::move(a) }
+    {
+    }
+
+    void read_impl(Iterator, Iterator) override
+    {
+        m_value = true;
+    }
+
+    [[nodiscard]] bool get() const noexcept
+    {
+        return m_value;
+    }
+
+    explicit operator bool() const noexcept
+    {
+        return m_value;
+    }
+
+private:
+    bool m_value{ false };
+};
+
+class CountingArgument : public TypedArgumentBase<std::size_t>
+{
+public:
+    explicit CountingArgument(Argument<std::size_t> a)
+    : TypedArgumentBase<std::size_t>{ std::move(a) }
+    {
+    }
+
+    [[nodiscard]] std::size_t get() const noexcept
+    {
+        return m_value;
+    }
+
+private:
+    void read_impl(Iterator, Iterator) override
+    {
+        ++m_value;
+    }
+
+    std::size_t m_value{ 0 };
+};
+
+template <typename T>
+class ValueArgument : public TypedArgumentBase<T>
+{
+public:
+    explicit ValueArgument(Argument<T> in)
+    : TypedArgumentBase<T>{ std::move(in) }
+    {
+    }
+
+    void read_impl(Iterator first, Iterator last) override
+    {
+        if (!this->set_by_user()) {
+            // Get rid of default values on first read.
+            this->clear();
+        }
+        for (; first != last; ++first) {
+#if defined(__cpp_lib_spanstream)
+            std::span<const char> span_view(*first);
+            std::ispanstream      ins(span_view);
+#elif defined(__cpp_lib_sstream_from_string_view)
+    std::istringstream ins(s);
+#else
+    std::istringstream ins(std::string(s));
+#endif
+
+            T t;
+            ins >> t;
+            this->push_back(std::move(t));
+        }
+    }
+
+    [[nodiscard]] const T& get(std::size_t idx = 0) const noexcept
+    {
+        return TypedArgumentBase<T>::get(idx);
+    }
 };
 
 template <typename T>
@@ -302,8 +366,6 @@ std::vector<std::string_view> to_string_views(std::span<const char*> sub_argv)
     return result;
 }
 
-std::vector<std::string_view> to_string_views_discard_first(std::span<const char*> argv);
-
 int main(int argc, const char* argv[])
 {
     using namespace std::literals;
@@ -326,23 +388,29 @@ int main(int argc, const char* argv[])
             .short_name = "r", .long_name = "resolution", .description = "Number of threads", .value = { 800, 600 },
             .min_values = 2, .max_values = 2
         };
-
         ValueArgument resolution{ resolution_args };
+
+        const Argument<std::size_t> verbosity_args = {
+            .short_name = "v", .description = "Verbosity level"
+        };
+        CountingArgument verbosity{ verbosity_args };
 
         parser.add(name);
         parser.add(threads);
         parser.add(resolution);
+        parser.add(verbosity);
 
         std::string_view program_name{ argv[0] };
         const auto       arg_list = to_string_views(std::span{ argv + 1, static_cast<std::size_t>(argc) - 1 });
         parser.parse(arg_list);
 
         std::println(std::cout,
-                     "Got name: {} threads: {}, resolution {}x{}",
+                     "Got name: {} threads: {}, resolution: {}x{}, verbosity: {}",
                      name.get(),
                      threads.get(),
                      resolution.get(0),
-                     resolution.get(1));
+                     resolution.get(1),
+                     verbosity.get());
     } catch (const std::exception& e) {
     }
 }
