@@ -37,6 +37,7 @@ public:
     void read(Iterator first, Iterator last)
     {
         read_impl(first, last);
+        m_set_by_user = true;
     }
 
     [[nodiscard]] std::string_view get_short_name() const noexcept
@@ -69,6 +70,11 @@ public:
         return get_max_arg_count_impl();
     }
 
+    [[nodiscard]] bool set_by_user() const noexcept
+    {
+        return m_set_by_user;
+    }
+
 private:
     virtual void read_impl(Iterator first, Iterator last) = 0;
 
@@ -78,6 +84,8 @@ private:
     [[nodiscard]] virtual std::size_t      get_count_impl() const noexcept { return 1; }
     [[nodiscard]] virtual std::size_t      get_min_arg_count_impl() const noexcept { return 1; }
     [[nodiscard]] virtual std::size_t      get_max_arg_count_impl() const noexcept { return 1; }
+
+    bool m_set_by_user{ false };
 };
 
 class SwitchArgument : public ArgumentBase
@@ -113,11 +121,10 @@ public:
 
     void read_impl(Iterator first, Iterator last) override
     {
-        if (!m_set_by_user) {
+        if (!set_by_user()) {
             // Get rid of default values on first read.
             m_data.value.clear();
         }
-        m_set_by_user = true;
         for (; first != last; ++first) {
 #if defined(__cpp_lib_spanstream)
             std::span<const char> span_view(*first);
@@ -159,11 +166,6 @@ public:
         return m_data.value.size();
     }
 
-    [[nodiscard]] bool set_by_user() const noexcept
-    {
-        return m_set_by_user;
-    }
-
     [[nodiscard]] std::size_t get_min_arg_count_impl() const noexcept override
     {
         return m_data.min_values;
@@ -175,7 +177,6 @@ public:
     }
 
 private:
-    bool        m_set_by_user{ false };
     Argument<T> m_data;
 };
 
