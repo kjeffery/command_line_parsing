@@ -2,55 +2,10 @@
 #include <cstdint>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <sstream>
 #include <string_view>
 #include <thread>
-#include <unordered_map>
-
-template <typename T>
-constexpr T xorshiftr(const T& n, std::size_t i) noexcept
-{
-    return n ^ (n >> i);
-}
-
-template <typename T>
-constexpr T xorshiftl(const T& n, std::size_t i) noexcept
-{
-    return n ^ (n << i);
-}
-
-constexpr std::uint32_t distribute(const std::uint32_t n) noexcept
-{
-    constexpr std::uint32_t p = 0x55555555UL; // pattern of alternating 0 and 1
-    constexpr std::uint32_t c = 0xf479498fUL; // random uneven integer constant;
-    return c * xorshiftl(p * xorshiftr(n, 16UL), 16UL);
-}
-
-constexpr std::uint64_t distribute(const std::uint64_t n) noexcept
-{
-    constexpr std::uint64_t p = 0x5555555555555555ULL; // pattern of alternating 0 and 1
-    constexpr std::uint64_t c = 0xfb44cdcb591a2a9dULL; // random uneven integer constant;
-    return c * xorshiftl(p * xorshiftr(n, 32ULL), 32ULL);
-}
-
-// Adapted from https://stackoverflow.com/a/50978188
-template <typename T, typename... Rest>
-void hash_combine(std::size_t& seed, const T& v, const Rest&... rest)
-{
-    seed = std::rotl(seed, std::numeric_limits<std::size_t>::digits / 3) ^ distribute(std::hash<T>{}(v));
-    (hash_combine(seed, rest), ...);
-}
-
-template <typename T, typename U>
-struct std::hash<std::pair<T, U>>
-{
-    std::size_t operator()(const std::pair<T, U>& p) const
-    {
-        std::size_t seed{ 162758582 };
-        hash_combine(seed, std::hash<T>{}(p.first), std::hash<U>{}(p.second));
-        return seed;
-    }
-};
 
 template <typename T, std::size_t size = 1>
 struct Argument
@@ -160,7 +115,7 @@ public:
     auto cend() const;
 
 private:
-    std::vector<T> m_data;
+    //std::vector<T> m_data;
 };
 
 class CommandLineParser
@@ -231,9 +186,9 @@ private:
     using LongName = std::string_view;
     using Key = std::pair<ShortName, LongName>;
 
-    std::unordered_map<ShortName, LongName> m_short_to_long;
-    std::unordered_map<LongName, ShortName> m_long_to_short;
-    std::unordered_map<Key, ArgumentBase*>  m_args;
+    std::map<ShortName, LongName> m_short_to_long;
+    std::map<LongName, ShortName> m_long_to_short;
+    std::map<Key, ArgumentBase*>  m_args;
 };
 
 // template <typename T>
@@ -268,7 +223,12 @@ int main(int argc, const char* argv[])
 
         parser.parse(argc, argv);
 
-        std::println(std::cout, "Got name: {} threads: {}, resolution {}x{}", name.get(), threads.get(), resolution.get(0), resolution.get(1));
+        std::println(std::cout,
+                     "Got name: {} threads: {}, resolution {}x{}",
+                     name.get(),
+                     threads.get(),
+                     resolution.get(0),
+                     resolution.get(1));
     } catch (const std::exception& e) {
     }
 }
