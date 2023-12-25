@@ -309,6 +309,11 @@ public:
         return m_values[idx];
     }
 
+    bool is_variable_length() const noexcept
+    {
+        return get_min_arg_count() != get_max_arg_count();
+    }
+
 private:
     std::vector<T> m_values;
 };
