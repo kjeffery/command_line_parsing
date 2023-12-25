@@ -32,21 +32,58 @@ struct Argument
 class ArgumentBase
 {
 public:
-    virtual      ~ArgumentBase() = default;
-    virtual void read(Iterator first, Iterator last) = 0;
+    virtual ~ArgumentBase() = default;
 
-    [[nodiscard]] virtual std::string_view get_short_name() const noexcept = 0;
-    [[nodiscard]] virtual std::string_view get_long_name() const noexcept = 0;
-    [[nodiscard]] virtual std::string_view get_description() const noexcept = 0;
-    [[nodiscard]] virtual std::size_t      get_count() const noexcept { return 1; }
-    [[nodiscard]] virtual std::size_t      get_min_arg_count() const noexcept { return 1; }
-    [[nodiscard]] virtual std::size_t      get_max_arg_count() const noexcept { return 1; }
+    void read(Iterator first, Iterator last)
+    {
+        read_impl(first, last);
+    }
+
+    [[nodiscard]] std::string_view get_short_name() const noexcept
+    {
+        return get_short_name_impl();
+    }
+
+    [[nodiscard]] std::string_view get_long_name() const noexcept
+    {
+        return get_long_name_impl();
+    }
+
+    [[nodiscard]] std::string_view get_description() const noexcept
+    {
+        return get_description_impl();
+    }
+
+    [[nodiscard]] std::size_t get_count() const noexcept
+    {
+        return get_count_impl();
+    }
+
+    [[nodiscard]] std::size_t get_min_arg_count() const noexcept
+    {
+        return get_min_arg_count_impl();
+    }
+
+    [[nodiscard]] std::size_t get_max_arg_count() const noexcept
+    {
+        return get_max_arg_count_impl();
+    }
+
+private:
+    virtual void read_impl(Iterator first, Iterator last) = 0;
+
+    [[nodiscard]] virtual std::string_view get_short_name_impl() const noexcept = 0;
+    [[nodiscard]] virtual std::string_view get_long_name_impl() const noexcept = 0;
+    [[nodiscard]] virtual std::string_view get_description_impl() const noexcept = 0;
+    [[nodiscard]] virtual std::size_t      get_count_impl() const noexcept { return 1; }
+    [[nodiscard]] virtual std::size_t      get_min_arg_count_impl() const noexcept { return 1; }
+    [[nodiscard]] virtual std::size_t      get_max_arg_count_impl() const noexcept { return 1; }
 };
 
 class SwitchArgument : public ArgumentBase
 {
 public:
-    void read(Iterator, Iterator) override
+    void read_impl(Iterator, Iterator) override
     {
         m_value = true;
     }
@@ -74,7 +111,7 @@ public:
     {
     }
 
-    void read(Iterator first, Iterator last) override
+    void read_impl(Iterator first, Iterator last) override
     {
         if (!m_set_by_user) {
             // Get rid of default values on first read.
@@ -102,22 +139,22 @@ public:
         return m_data.value[idx];
     }
 
-    [[nodiscard]] std::string_view get_short_name() const noexcept override
+    [[nodiscard]] std::string_view get_short_name_impl() const noexcept override
     {
         return m_data.short_name;
     }
 
-    [[nodiscard]] std::string_view get_long_name() const noexcept override
+    [[nodiscard]] std::string_view get_long_name_impl() const noexcept override
     {
         return m_data.long_name;
     }
 
-    [[nodiscard]] std::string_view get_description() const noexcept override
+    [[nodiscard]] std::string_view get_description_impl() const noexcept override
     {
         return m_data.description;
     }
 
-    [[nodiscard]] std::size_t get_count() const noexcept override
+    [[nodiscard]] std::size_t get_count_impl() const noexcept override
     {
         return m_data.value.size();
     }
@@ -127,12 +164,12 @@ public:
         return m_set_by_user;
     }
 
-    [[nodiscard]] std::size_t get_min_arg_count() const noexcept override
+    [[nodiscard]] std::size_t get_min_arg_count_impl() const noexcept override
     {
         return m_data.min_values;
     }
 
-    [[nodiscard]] std::size_t get_max_arg_count() const noexcept override
+    [[nodiscard]] std::size_t get_max_arg_count_impl() const noexcept override
     {
         return m_data.max_values;
     }
