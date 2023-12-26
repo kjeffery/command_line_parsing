@@ -65,6 +65,14 @@ int main(int argc, const char* argv[])
         for (const auto& f: files) {
             std::println(std::cout, "File: {}", f.string());
         }
+    } catch (const CLSetupError& e) {
+        std::cerr << "Setup error: " << e.what() << '\n';
+        assert(false);
+    } catch (const CLParseError& e) {
+        std::cerr << "Argument error: " << e.what() << '\n';
     } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << '\n';
+    } catch (...) {
+        std::cerr << "Unknown error\n";
     }
 }

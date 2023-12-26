@@ -20,13 +20,13 @@
 using ArgumentContainer = std::vector<std::string_view>;
 using Iterator = ArgumentContainer::const_iterator;
 
-class CLParseError : std::runtime_error
+class CLParseError : public std::runtime_error
 {
 public:
     using std::runtime_error::runtime_error;
 };
 
-class CLSetupError : std::logic_error
+class CLSetupError : public std::logic_error
 {
 public:
     using std::logic_error::logic_error;
