@@ -6,6 +6,7 @@
 #include <limits>
 #include <map>
 #include <span>
+#include <stdexcept>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -18,6 +19,30 @@
 
 using ArgumentContainer = std::vector<std::string_view>;
 using Iterator = ArgumentContainer::const_iterator;
+
+class CLParseError : std::runtime_error
+{
+public:
+    using std::runtime_error::runtime_error;
+};
+
+class CLSetupError : std::logic_error
+{
+public:
+    using std::logic_error::logic_error;
+};
+
+template <typename... Args>
+void throw_parse_error(std::format_string<Args...> fmt, Args&&... args)
+{
+    throw CLParseError{ std::format(fmt, std::forward<Args>(args)...) };
+}
+
+template <typename... Args>
+void throw_setup_error(std::format_string<Args...> fmt, Args&&... args)
+{
+    throw CLSetupError{ std::format(fmt, std::forward<Args>(args)...) };
+}
 
 struct SingleValueArgumentParams
 {
@@ -534,7 +559,7 @@ public:
                 first = parse_sub_arguments(*obj, first, last);
             } else {
                 if (!m_positional) {
-                    throw 23; // Arguments left over.
+                    throw_parse_error("There are leftover arguments that could not be parsed");
                 }
                 break;
             }
@@ -550,7 +575,7 @@ public:
     {
         if (argument.is_positional()) {
             if (m_positional) {
-                throw 82; // TODO: already specified
+                throw_setup_error("Positional arguments specified more than once");
             }
             m_positional = std::addressof(argument);
             return;
@@ -560,18 +585,18 @@ public:
         const auto long_name  = argument.get_long_name();
 
         if (short_name.empty() && long_name.empty()) {
-            throw 3; // TODO: replace At least one name must be specified
+            throw_setup_error("Argument type requires a name");
         }
 
         if (!short_name.empty()) {
             if (auto [iter, inserted] = m_short_to_long.emplace(short_name, long_name); !inserted) {
-                throw 8; // TODO: already exists
+                throw_setup_error("Short name {} already specified", short_name);
             }
         }
 
         if (!long_name.empty()) {
             if (auto [iter, inserted] = m_long_to_short.emplace(long_name, short_name); !inserted) {
-                throw 9; // TODO: already exists
+                throw_setup_error("Long name {} already specified", long_name);
             }
         }
         m_args.emplace(Key{ short_name, long_name }, std::addressof(argument));
@@ -584,7 +609,12 @@ private:
         const auto num_available_sub_arguments = get_number_available_sub_args(first + 1, last);
 
         if (num_available_sub_arguments < min_num_sub_arguments) {
-            throw 28;
+            const auto& long_name = obj.get_long_name();
+            const auto& name      = (long_name.empty()) ? obj.get_short_name() : long_name;
+            throw_parse_error("Fewer arguments ({}) specified than required ({}) for flag {}",
+                              num_available_sub_arguments,
+                              min_num_sub_arguments,
+                              name);
         }
 
         const auto max_num_sub_arguments = obj.get_max_arg_count();
@@ -599,12 +629,16 @@ private:
         const auto num_available_sub_arguments = get_number_available_sub_args(first, last);
 
         if (num_available_sub_arguments < min_num_sub_arguments) {
-            throw 882;
+            throw_parse_error("Fewer arguments ({}) specified than required ({}) for positional arguments",
+                              num_available_sub_arguments,
+                              min_num_sub_arguments);
         }
 
         const auto max_num_sub_arguments = obj.get_max_arg_count();
         if (num_available_sub_arguments > max_num_sub_arguments) {
-            throw 74;
+            throw_parse_error("More arguments ({}) specified than required ({}) for positional arguments",
+                              num_available_sub_arguments,
+                              max_num_sub_arguments);
         }
 
         obj.read(first, last);
