@@ -512,6 +512,7 @@ public:
             const std::string_view& arg = *first;
             if (arg == "--") {
                 // Do positional parsing
+                // Don't mark an empty positional as an error here...maybe it was blank for a reason.
                 break;
             } else if (arg.starts_with("--")) {
                 auto long_name = arg;
@@ -531,6 +532,11 @@ public:
                 assert(obj);
 
                 first = parse_sub_arguments(*obj, first, last);
+            } else {
+                if (!m_positional) {
+                    throw 23; // Arguments left over.
+                }
+                break;
             }
         }
         if (m_positional) {
