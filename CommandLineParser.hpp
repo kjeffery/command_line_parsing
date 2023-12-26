@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Finally.hpp"
+
 #include <cassert>
 #include <cstddef>
 #include <filesystem>
@@ -213,6 +215,16 @@ public:
         return m_set_by_user;
     }
 
+    [[nodiscard]] bool is_required() const noexcept
+    {
+        return m_params.user_input_required;
+    }
+
+    bool is_variable_length() const noexcept
+    {
+        return get_min_arg_count() != get_max_arg_count();
+    }
+
 private:
     virtual void               read_impl(Iterator first, Iterator last) = 0;
     [[nodiscard]] virtual bool is_positional_impl() const = 0;
@@ -339,11 +351,6 @@ public:
         return m_values.size();
     }
 
-    bool is_variable_length() const noexcept
-    {
-        return get_min_arg_count() != get_max_arg_count();
-    }
-
     auto begin() const
     {
         return m_values.cbegin();
@@ -452,11 +459,6 @@ public:
     [[nodiscard]] std::size_t size() const noexcept
     {
         return m_values.size();
-    }
-
-    bool is_variable_length() const noexcept
-    {
-        return get_min_arg_count() != get_max_arg_count();
     }
 
     auto begin() const
@@ -573,6 +575,8 @@ public:
 
     void add(ArgumentBase& argument)
     {
+        auto final = finally([this] { check_ambiguity(); });
+
         if (argument.is_positional()) {
             if (m_positional) {
                 throw_setup_error("Positional arguments specified more than once");
@@ -609,12 +613,10 @@ private:
         const auto num_available_sub_arguments = get_number_available_sub_args(first + 1, last);
 
         if (num_available_sub_arguments < min_num_sub_arguments) {
-            const auto& long_name = obj.get_long_name();
-            const auto& name      = (long_name.empty()) ? obj.get_short_name() : long_name;
             throw_parse_error("Fewer arguments ({}) specified than required ({}) for flag {}",
                               num_available_sub_arguments,
                               min_num_sub_arguments,
-                              name);
+                              get_representation_name(obj));
         }
 
         const auto max_num_sub_arguments = obj.get_max_arg_count();
@@ -642,6 +644,33 @@ private:
         }
 
         obj.read(first, last);
+    }
+
+    void check_ambiguity() const
+    {
+        if (!m_positional) {
+            return;
+        }
+
+        // We can resolve parsing exactly _n_ positional arguments
+        if (!m_positional->is_variable_length() && m_positional->is_required()) {
+            return;
+        }
+
+        for (auto&& [_, arg]: m_args) {
+            assert(arg);
+            if (arg->is_variable_length()) {
+                throw_setup_error("Ambiguitiy between variadic positional arguments and variabic name argument {}",
+                                  get_representation_name(*arg));
+            }
+        }
+    }
+
+    static std::string_view get_representation_name(const ArgumentBase& arg)
+    {
+        assert(!arg.is_positional());
+        const auto& long_name = arg.get_long_name();
+        return (long_name.empty()) ? arg.get_short_name() : long_name;
     }
 
     using ShortName = std::string_view;

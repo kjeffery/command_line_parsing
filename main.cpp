@@ -15,10 +15,20 @@ int main(int argc, const char* argv[])
 
         CommandLineParser parser;
 
+#if 0
         const SingleValueArgumentParams name_args = {
             .short_name = "n", .long_name = "name", .description = "User name"
         };
         SingleValueArgument<std::string> name{ name_args, "Marcus" };
+#endif
+        SingleValueArgument<std::string> name{
+            {
+                .short_name = "n",
+                .long_name = "name",
+                .description = "User name"
+            },
+            "Marcus"
+        };
 
         const SingleValueArgumentParams thread_args = {
             .long_name = "threads", .description = "Number of threads"
