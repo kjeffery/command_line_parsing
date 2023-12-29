@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <limits>
 #include <map>
+#include <ranges>
 #include <span>
 #include <stdexcept>
 #include <string_view>
@@ -571,12 +572,48 @@ public:
         }
     }
 
-    void print_help(std::string_view program_name);
+    void print_help(std::ostream& outs, std::string_view program_name) const
+    {
+        const bool ambiguous                = is_ambiguous();
+        const bool has_optional_named       = true;
+        const bool has_required_named       = true;
+        const bool has_required_positionals = false;
+        const bool has_optional_positionals = true;
+
+        assert(!has_optional_positionals || !has_required_positionals);
+
+        std::print(outs, "Usage: {}", program_name);
+        if (has_required_named) {
+            std::print(outs, " <required flags>");
+        }
+        if (has_optional_named) {
+            std::print(outs, " [optional flags]");
+        }
+        if (ambiguous) {
+            std::print(outs, " --");
+        }
+        if (has_required_positionals) {
+            assert(m_positional);
+            std::print(outs, " <{}>", m_positional->get_description());
+        } else if (has_optional_positionals) {
+            assert(m_positional);
+            std::print(outs, " [{}]", m_positional->get_description());
+        }
+
+        auto is_required = [](auto x) { return x.second->is_required(); };
+        auto is_not_required = [](auto x) { return !x.second->is_required(); };
+        std::ranges::for_each(m_args | std::ranges::views::filter(is_required),
+                              [&outs](auto x) {
+                                  std::println(outs, "Required: {}", get_representation_name(*x.second));
+                              });
+        std::ranges::for_each(m_args | std::ranges::views::filter(is_not_required),
+                              [&outs](auto x) {
+                                  std::println(outs, "Optional: {}", get_representation_name(*x.second));
+                              });
+    }
 
     void add(ArgumentBase& argument)
     {
-        auto final = finally([this] { check_ambiguity(); });
-
         if (argument.is_positional()) {
             if (m_positional) {
                 throw_setup_error("Positional arguments specified more than once");
@@ -646,24 +683,26 @@ private:
         obj.read(first, last);
     }
 
-    void check_ambiguity() const
+    bool is_ambiguous() const
     {
         if (!m_positional) {
-            return;
+            return false;
         }
 
         // We can resolve parsing exactly _n_ positional arguments
         if (!m_positional->is_variable_length() && m_positional->is_required()) {
-            return;
+            return false;
         }
 
         for (auto&& [_, arg]: m_args) {
             assert(arg);
             if (arg->is_variable_length()) {
-                throw_setup_error("Ambiguitiy between variadic positional arguments and variabic name argument {}",
-                                  get_representation_name(*arg));
+                // At this point, we have a variadic positional (either we don't know the number, or the number is
+                // optional, which comes out to the same thing), and so a variadic named argument conflicts with this.
+                return true;
             }
         }
+        return false;
     }
 
     static std::string_view get_representation_name(const ArgumentBase& arg)
