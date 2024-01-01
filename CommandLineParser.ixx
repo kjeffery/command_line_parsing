@@ -38,16 +38,10 @@ enum class UserInput
     optional
 };
 
-template <typename T, typename = void>
-struct has_custom_read : std::false_type
-{
-};
-
 template <typename T>
-struct has_custom_read<T,
-                       std::void_t<decltype(parameter_read(std::declval<std::istream&>(), std::declval<T>())
-                       )>> : std::true_type
+concept has_custom_parameter_read = requires(T a)
 {
+    custom_parameter_read(std::declval<std::istream&>(), a);
 };
 
 template <typename T>
@@ -55,8 +49,8 @@ template <typename T>
 T do_read(std::istream& ins)
 {
     T t;
-    if constexpr (has_custom_read<T>::value) {
-        parameter_read(ins, t);
+    if constexpr (has_custom_parameter_read<T>) {
+        custom_parameter_read(ins, t);
     } else {
         ins >> t;
     }

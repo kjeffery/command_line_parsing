@@ -3,6 +3,19 @@ import CommandLineParser;
 
 #include <cassert>
 
+class MyNonStreamableClass
+{
+public:
+    int x{ 42 };
+};
+
+void custom_parameter_read(std::istream& ins, MyNonStreamableClass& c)
+{
+    int val;
+    ins >> val;
+    c.x = val;
+}
+
 int main(int argc, const char* argv[])
 {
     using namespace std::literals;
@@ -19,6 +32,13 @@ int main(int argc, const char* argv[])
             {
                 .short_name = "n", .long_name = "name",
                 .description = "First name", .user_input_required = true
+            }
+        };
+
+        CommandLineParser::NamedParameter<MyNonStreamableClass> non_streamable{
+            {
+                .short_name = "ns", .long_name = "non_streamable",
+                .description = "Test case", .user_input_required = false
             }
         };
     } catch (const CommandLineParser::CLSetupError& e) {
