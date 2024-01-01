@@ -9,16 +9,22 @@ namespace CommandLineParser {
 export using ArgumentContainer = std::vector<std::string_view>;
 using Iterator = ArgumentContainer::const_iterator;
 
-export class CLParseError : public std::runtime_error
+export class CLError : public std::runtime_error
 {
 public:
     using std::runtime_error::runtime_error;
 };
 
-export class CLSetupError : public std::logic_error
+export class CLParseError : public CLError
 {
 public:
-    using std::logic_error::logic_error;
+    using CLError::CLError;
+};
+
+export class CLSetupError : public CLError
+{
+public:
+    using CLError::CLError;
 };
 
 template <typename... Args>
