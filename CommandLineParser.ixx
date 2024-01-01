@@ -1,22 +1,6 @@
-module;
-
-#include <istream>
-#include <limits>
-#include <optional>
-#include <ranges>
-#include <span>
-#include <stdexcept>
-#include <string_view>
-#include <type_traits>
-#include <vector>
-
-#if __has_include(<spanstream>)
-#include <spanstream>
-#else
-#include <sstream>
-#endif
-
 export module CommandLineParser;
+
+import std;
 
 namespace CommandLineParser {
 using ArgumentContainer = std::vector<std::string_view>;
@@ -228,14 +212,8 @@ struct NamedRuntimeParameterImpl
         m_values.clear();
 
         for (; first != last; ++first) {
-#if defined(__cpp_lib_spanstream)
             std::span<const char> span_view(*first);
             std::ispanstream      ins(span_view);
-#elif defined(__cpp_lib_sstream_from_string_view)
-            std::istringstream ins(s);
-#else
-            std::istringstream ins(std::string(s));
-#endif
 
             if (!m_values.has_value()) {
                 m_values = std::vector<T>{};
@@ -293,14 +271,8 @@ struct NamedFixedParameterImpl
         m_values.clear();
 
         for (; first != last; ++first) {
-#if defined(__cpp_lib_spanstream)
             std::span<const char> span_view(*first);
             std::ispanstream      ins(span_view);
-#elif defined(__cpp_lib_sstream_from_string_view)
-            std::istringstream ins(s);
-#else
-            std::istringstream ins(std::string(s));
-#endif
 
             if (!m_values.has_value()) {
                 m_values = std::vector<T>{};
@@ -367,14 +339,8 @@ struct NamedFixedParameterImpl<T, 1ULL, 1ULL>
 
     void read(Iterator first, Iterator last)
     {
-#if defined(__cpp_lib_spanstream)
         std::span<const char> span_view(*first);
         std::ispanstream      ins(span_view);
-#elif defined(__cpp_lib_sstream_from_string_view)
-        std::istringstream ins(s);
-#else
-        std::istringstream ins(std::string(s));
-#endif
 
         m_value = do_read<T>(ins);
     }
@@ -382,6 +348,7 @@ struct NamedFixedParameterImpl<T, 1ULL, 1ULL>
     std::optional<T> m_value;
 };
 
+// TODO: we probably don't need the private inheritence: just own one.
 export template <typename T, std::size_t num_values_min = 1ULL, std::size_t num_values_max = num_values_min>
 class NamedParameter final : public NamedParameterBase,
                              private NamedFixedParameterImpl<T, num_values_min, num_values_max>
@@ -417,6 +384,7 @@ private:
     }
 };
 
+// TODO: we probably don't need the private inheritence: just own one.
 export template <typename T, std::size_t unused>
 class NamedParameter<T, runtime_decision, unused> final : public NamedParameterBase,
                                                           private NamedRuntimeParameterImpl<T>
