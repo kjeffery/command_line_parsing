@@ -448,19 +448,21 @@ public:
                 long_name.remove_prefix(2); // Remove "--"
                 const auto short_name = m_long_to_short.at(long_name);
 
+                // TODO: check for existance
                 auto* obj = m_args.at(Key{ short_name, long_name });
                 assert(obj);
 
-                first = parse_sub_arguments(*obj, first, last);
+                first = parse_named_parameter_sub_arguments(*obj, first, last);
             } else if (arg.starts_with('-')) {
                 auto short_name = arg;
                 short_name.remove_prefix(1); // Remove '-'
                 const auto long_name = m_short_to_long.at(short_name);
 
+                // TODO: check for existance
                 auto* obj = m_args.at(Key{ short_name, long_name });
                 assert(obj);
 
-                first = parse_sub_arguments(*obj, first, last);
+                first = parse_named_parameter_sub_arguments(*obj, first, last);
             } else {
                 if (!m_positional) {
                     throw_parse_error("There are leftover arguments that could not be parsed");
@@ -545,9 +547,9 @@ public:
     }
 
 private:
-    auto parse_sub_arguments(NamedParameterBase&          obj,
-                             string_like_ra_iterator auto first,
-                             string_like_ra_iterator auto last)
+    auto parse_named_parameter_sub_arguments(NamedParameterBase&          obj,
+                                             string_like_ra_iterator auto first,
+                                             string_like_ra_iterator auto last)
     {
         const auto min_num_sub_arguments       = obj.get_min_arg_count();
         const auto num_available_sub_arguments = get_number_available_sub_args(first + 1, last);
