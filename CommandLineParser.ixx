@@ -432,6 +432,9 @@ inline [[nodiscard]] std::size_t get_number_available_sub_args(Iterator first, I
 export class CommandLineParser
 {
 public:
+    // I've written this to take string-like iterators, but, in practice, it only works on iterators of string_views, as
+    // we eventually call virtual read functions with the iterators. Of course, we can't use templates with virtual
+    // functions. Should I overload the read functions?
     void parse(string_like_ra_iterator auto first, string_like_ra_iterator auto last)
     {
         // Precondition: the executable name has been removed from argc
