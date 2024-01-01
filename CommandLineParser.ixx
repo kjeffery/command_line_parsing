@@ -42,6 +42,13 @@ enum class UserInput
 };
 
 template <typename T>
+concept string_like = std::is_same_v<T, std::string> || std::is_same_v<T, std::string_view>;
+
+template <typename T>
+concept string_like_ra_iterator = std::random_access_iterator<T> && string_like<typename std::iterator_traits<
+    T>::value_type>;
+
+template <typename T>
 concept has_custom_parameter_read = requires(T a)
 {
     custom_parameter_read(std::declval<std::istream&>(), a);
@@ -425,14 +432,11 @@ inline [[nodiscard]] std::size_t get_number_available_sub_args(Iterator first, I
 export class CommandLineParser
 {
 public:
-    void parse(const ArgumentContainer& argc)
+    void parse(string_like_ra_iterator auto first, string_like_ra_iterator auto last)
     {
         // Precondition: the executable name has been removed from argc
-        auto first = argc.cbegin();
-        auto last  = argc.cend();
-
         while (first != last) {
-            if (const std::string_view& arg = *first; arg == "--") {
+            if (const auto& arg = *first; arg == "--") {
                 // Do positional parsing
                 // Don't mark an empty positional as an error here...maybe it was blank for a reason.
                 break;
@@ -538,7 +542,9 @@ public:
     }
 
 private:
-    Iterator parse_sub_arguments(NamedParameterBase& obj, Iterator first, Iterator last)
+    auto parse_sub_arguments(NamedParameterBase&          obj,
+                             string_like_ra_iterator auto first,
+                             string_like_ra_iterator auto last)
     {
         const auto min_num_sub_arguments       = obj.get_min_arg_count();
         const auto num_available_sub_arguments = get_number_available_sub_args(first + 1, last);
@@ -556,7 +562,9 @@ private:
         return first + 1 + number_to_read;
     }
 
-    void parse_positionals(PositionalParameterBase& obj, Iterator first, Iterator last)
+    void parse_positionals(PositionalParameterBase&     obj,
+                           string_like_ra_iterator auto first,
+                           string_like_ra_iterator auto last)
     {
         const auto min_num_sub_arguments       = obj.get_min_arg_count();
         const auto num_available_sub_arguments = get_number_available_sub_args(first, last);

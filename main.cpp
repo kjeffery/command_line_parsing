@@ -48,6 +48,7 @@ int main(int argc, const char* argv[])
         parser.add(non_streamable);
 
         const auto arg_sv = CommandLineParser::argv_to_string_views({ argv, static_cast<std::size_t>(argc) });
+        parser.parse(arg_sv.begin() + 1, arg_sv.end());
     } catch (const CommandLineParser::CLSetupError& e) {
         std::cerr << "Setup error: " << e.what() << '\n';
         assert(false);
