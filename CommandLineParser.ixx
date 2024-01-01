@@ -353,8 +353,7 @@ public:
     explicit NamedParameter(const NamedParameterInput& in)
     : NamedParameterBase(
                          in.description,
-                         //(in.user_input_required) ? UserInput::required : UserInput::optional,
-                         UserInput::required,
+                         (in.user_input_required) ? UserInput::required : UserInput::optional,
                          in.short_name,
                          in.long_name
                         )
