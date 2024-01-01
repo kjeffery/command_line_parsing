@@ -19,6 +19,7 @@ void custom_parameter_read(std::istream& ins, MyNonStreamableClass& c)
 int main(int argc, const char* argv[])
 {
     using namespace std::literals;
+
     try {
         const auto default_threads = std::thread::hardware_concurrency();
 
@@ -41,6 +42,12 @@ int main(int argc, const char* argv[])
                 .description = "Test case", .user_input_required = false
             }
         };
+
+        CommandLineParser::CommandLineParser parser;
+        parser.add(name);
+        parser.add(non_streamable);
+
+        const auto arg_sv = CommandLineParser::argv_to_string_views({ argv, static_cast<std::size_t>(argc) });
     } catch (const CommandLineParser::CLSetupError& e) {
         std::cerr << "Setup error: " << e.what() << '\n';
         assert(false);
