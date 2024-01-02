@@ -51,7 +51,7 @@ template <typename T>
 concept string_like = std::is_same_v<T, std::string> || std::is_same_v<T, std::string_view>;
 
 template <typename T>
-concept string_like_ra_iterator = std::random_access_iterator<T> && string_like<typename std::iterator_traits<
+concept string_like_input_iterator = std::input_iterator<T> && string_like<typename std::iterator_traits<
     T>::value_type>;
 
 template <typename T>
@@ -438,10 +438,7 @@ inline [[nodiscard]] std::size_t get_number_available_sub_args(Iterator first, I
 export class CommandLineParser
 {
 public:
-    // I've written this to take string-like iterators, but, in practice, it only works on iterators of string_views, as
-    // we eventually call virtual read functions with the iterators. Of course, we can't use templates with virtual
-    // functions, so we need the concrete iterator types. Also, the code below assumes string_views!
-    void parse(string_like_ra_iterator auto first, string_like_ra_iterator auto last)
+    void parse(Iterator first, Iterator last)
     {
         // Precondition: the executable name has been removed from argc
         while (first != last) {
@@ -488,6 +485,21 @@ public:
         if (m_positional) {
             parse_positionals(*m_positional, first, last);
         }
+    }
+
+    // If we send non-random-access iterators or iterators with std::string, we convert to random-access string_view
+    // iterators.
+    void parse(string_like_input_iterator auto first, string_like_input_iterator auto last)
+    {
+        ArgumentContainer string_views;
+        std::ranges::transform(first,
+                               last,
+                               std::back_inserter(string_views),
+                               [](auto s) {
+                                   return std::string_view(s);
+                               }
+                              );
+        parse(string_views.cbegin(), string_views.cend());
     }
 
     void print_help(std::ostream& outs, std::string_view program_name) const
@@ -564,9 +576,9 @@ public:
     }
 
 private:
-    auto parse_named_parameter_sub_arguments(NamedParameterBase&          obj,
-                                             string_like_ra_iterator auto first,
-                                             string_like_ra_iterator auto last)
+    auto parse_named_parameter_sub_arguments(NamedParameterBase&             obj,
+                                             string_like_input_iterator auto first,
+                                             string_like_input_iterator auto last)
     {
         const auto min_num_sub_arguments       = obj.get_min_arg_count();
         const auto num_available_sub_arguments = get_number_available_sub_args(first + 1, last);
@@ -584,9 +596,9 @@ private:
         return first + 1 + number_to_read;
     }
 
-    void parse_positionals(PositionalParameterBase&     obj,
-                           string_like_ra_iterator auto first,
-                           string_like_ra_iterator auto last)
+    void parse_positionals(PositionalParameterBase&        obj,
+                           string_like_input_iterator auto first,
+                           string_like_input_iterator auto last)
     {
         const auto min_num_sub_arguments       = obj.get_min_arg_count();
         const auto num_available_sub_arguments = get_number_available_sub_args(first, last);
