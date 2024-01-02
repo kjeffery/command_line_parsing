@@ -440,7 +440,7 @@ export class CommandLineParser
 public:
     // I've written this to take string-like iterators, but, in practice, it only works on iterators of string_views, as
     // we eventually call virtual read functions with the iterators. Of course, we can't use templates with virtual
-    // functions. Should I overload the read functions?
+    // functions, so we need the concrete iterator types. Also, the code below assumes string_views!
     void parse(string_like_ra_iterator auto first, string_like_ra_iterator auto last)
     {
         // Precondition: the executable name has been removed from argc
@@ -452,9 +452,14 @@ public:
             } else if (arg.starts_with("--")) {
                 auto long_name = arg;
                 long_name.remove_prefix(2); // Remove "--"
-                const auto short_name = m_long_to_short.at(long_name);
 
-                // TODO: check for existance
+                const auto it = m_long_to_short.find(long_name);
+                if (it == m_long_to_short.end()) {
+                    throw_parse_error("Not a valid argument: --{}", long_name);
+                }
+
+                const auto& short_name = it->second;
+
                 auto* obj = m_args.at(Key{ short_name, long_name });
                 assert(obj);
 
@@ -462,9 +467,13 @@ public:
             } else if (arg.starts_with('-')) {
                 auto short_name = arg;
                 short_name.remove_prefix(1); // Remove '-'
-                const auto long_name = m_short_to_long.at(short_name);
 
-                // TODO: check for existance
+                const auto it = m_short_to_long.find(short_name);
+                if (it == m_short_to_long.end()) {
+                    throw_parse_error("Not a valid argument: -{}", short_name);
+                }
+                const auto& long_name = it->second;
+
                 auto* obj = m_args.at(Key{ short_name, long_name });
                 assert(obj);
 
@@ -535,7 +544,7 @@ public:
         const auto long_name  = parameter.get_long_name();
 
         if (short_name.empty() && long_name.empty()) {
-            throw_setup_error("Argument type requires a name");
+            throw_setup_error("Argument type requires at least one of a short name or a long name");
         }
 
         if (!short_name.empty()) {
@@ -549,6 +558,8 @@ public:
                 throw_setup_error("Long name {} already specified", long_name);
             }
         }
+
+        // We add empty names deliberately.
         m_args.emplace(Key{ short_name, long_name }, std::addressof(parameter));
     }
 
