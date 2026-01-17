@@ -2,35 +2,36 @@
 
 #include "Finally.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <cstddef>
 #include <filesystem>
 #include <format>
+#include <iostream>
+#include <istream>
 #include <limits>
 #include <map>
+#include <optional>
+#include <ostream>
 #include <ranges>
 #include <span>
 #include <stdexcept>
 #include <string_view>
 #include <utility>
-
 #include <vector>
-#include <algorithm>
-#include <istream>
-#include <optional>
+
 #if __has_include(<print>)
 #include <print>
 #endif
 
 #if __has_include(<spanstream>)
 #include <spanstream>
-#define COMMANDLINEPARSER_HAS_SPANSTREAM 1
 #else
 #include <sstream>
-#define COMMANDLINEPARSER_HAS_SPANSTREAM 0
 #endif
 
-namespace CommandLineParser {
+namespace CommandLineParser
+{
 using ArgumentContainer = std::vector<std::string_view>;
 using Iterator = ArgumentContainer::const_iterator;
 
@@ -55,13 +56,13 @@ public:
 template <typename... Args>
 void throw_parse_error(std::format_string<Args...> fmt, Args&&... args)
 {
-    throw CLParseError{ std::format(fmt, std::forward<Args>(args)...) };
+    throw CLParseError{std::format(fmt, std::forward<Args>(args)...)};
 }
 
 template <typename... Args>
 void throw_setup_error(std::format_string<Args...> fmt, Args&&... args)
 {
-    throw CLSetupError{ std::format(fmt, std::forward<Args>(args)...) };
+    throw CLSetupError{std::format(fmt, std::forward<Args>(args)...)};
 }
 
 constexpr auto runtime_decision = std::numeric_limits<std::size_t>::max() - 1ULL;
@@ -76,7 +77,8 @@ template <typename T>
 concept string_like = std::is_same_v<T, std::string> || std::is_same_v<T, std::string_view>;
 
 template <typename T>
-concept string_like_input_iterator = std::random_access_iterator<T> && string_like<typename std::iterator_traits<T>::value_type>;
+concept string_like_input_iterator = std::input_iterator<T> && string_like<typename std::iterator_traits<
+    T>::value_type>;
 
 template <typename T>
 concept has_custom_parameter_read = requires(T a)
@@ -97,15 +99,10 @@ T do_read(std::istream& ins)
     return t;
 }
 
-inline auto make_input_stream(std::string_view sv)
-#if COMMANDLINEPARSER_HAS_SPANSTREAM
-    -> std::ispanstream
-#else
-    -> std::istringstream
-#endif
+inline auto make_input_stream(std::string_view sv) -> decltype(auto)
 {
-#if COMMANDLINEPARSER_HAS_SPANSTREAM
-    std::span<const char> span_view{ sv.data(), sv.size() };
+#if defined(__cpp_lib_spanstream)
+    std::span<const char> span_view{sv.data(), sv.size()};
     return std::ispanstream(span_view);
 #else
     return std::istringstream(std::string(sv));
@@ -117,22 +114,22 @@ struct NamedParameterInput
     std::string_view short_name{};
     std::string_view long_name{};
     std::string_view description{};
-    bool             user_input_required{ false };
+    bool user_input_required{false};
 };
 
 class ParameterBase
 {
 public:
     constexpr ParameterBase(const std::string_view description,
-                            const UserInput        user_input)
-    : m_description{ description }
-    , m_user_input{ user_input }
+                            const UserInput user_input)
+    : m_description{description}
+    , m_user_input{user_input}
     {
     }
 
     virtual ~ParameterBase() = default;
 
-    void read(Iterator first, Iterator last)
+    void read(const Iterator first, const Iterator last)
     {
         read_impl(first, last);
         m_set_by_user = true;
@@ -169,25 +166,25 @@ public:
     }
 
 private:
-    virtual void                      read_impl(Iterator first, Iterator last) = 0;
+    virtual void read_impl(Iterator first, Iterator last) = 0;
     [[nodiscard]] virtual std::size_t get_min_arg_count_impl() const noexcept = 0;
     [[nodiscard]] virtual std::size_t get_max_arg_count_impl() const noexcept = 0;
 
-    bool             m_set_by_user{ false };
+    bool m_set_by_user{false};
     std::string_view m_description;
-    UserInput        m_user_input;
+    UserInput m_user_input;
 };
 
 class NamedParameterBase : public ParameterBase
 {
 public:
     constexpr NamedParameterBase(const std::string_view description,
-                                 const UserInput        user_input,
+                                 const UserInput user_input,
                                  const std::string_view short_name,
                                  const std::string_view long_name)
-    : ParameterBase{ description, user_input }
-    , m_short_name{ short_name }
-    , m_long_name{ long_name }
+    : ParameterBase{description, user_input}
+    , m_short_name{short_name}
+    , m_long_name{long_name}
     {
     }
 
@@ -210,8 +207,8 @@ class PositionalParameterBase : public ParameterBase
 {
 public:
     constexpr PositionalParameterBase(const std::string_view description,
-                                      const UserInput        user_input)
-    : ParameterBase{ description, user_input }
+                                      const UserInput user_input)
+    : ParameterBase{description, user_input}
     {
     }
 };
@@ -220,19 +217,19 @@ template <typename T>
 struct NamedRuntimeParameterImpl
 {
     constexpr NamedRuntimeParameterImpl(std::size_t num_values_min, std::size_t num_values_max)
-    : m_num_values_min{ num_values_min }
-    , m_num_values_max{ num_values_max }
+    : m_num_values_min{num_values_min}
+    , m_num_values_max{num_values_max}
     {
     }
 
     template <typename U = T>
     constexpr explicit NamedRuntimeParameterImpl(
-            U&&         value,
-            std::size_t num_values_min,
-            std::size_t num_values_max)
+        U&& value,
+        std::size_t num_values_min,
+        std::size_t num_values_max)
     : m_values(std::forward<U>(value))
-    , m_num_values_min{ num_values_min }
-    , m_num_values_max{ num_values_max }
+    , m_num_values_min{num_values_min}
+    , m_num_values_max{num_values_max}
     {
     }
 
@@ -277,8 +274,8 @@ struct NamedRuntimeParameterImpl
     }
 
     std::optional<std::vector<T>> m_values;
-    std::size_t                   m_num_values_min;
-    std::size_t                   m_num_values_max;
+    std::size_t m_num_values_min;
+    std::size_t m_num_values_max;
 };
 
 template <typename T, std::size_t num_values_min, std::size_t num_values_max>
@@ -443,8 +440,8 @@ class NamedParameter<T, runtime_decision, unused> final : public NamedParameterB
 
 public:
     explicit NamedParameter(const NamedParameterInput& in,
-                            std::size_t                num_parameters_min,
-                            std::size_t                num_parameters_max)
+                            std::size_t num_parameters_min,
+                            std::size_t num_parameters_max)
     : NamedParameterBase{
         in.description, (in.user_input_required) ? UserInput::required : UserInput::optional, in.short_name,
         in.long_name
@@ -489,11 +486,11 @@ private:
     Impl m_impl;
 };
 
-inline [[nodiscard]] std::size_t get_number_available_sub_args(Iterator first, Iterator last)
+[[nodiscard]] inline std::size_t get_number_available_sub_args(Iterator first, Iterator last)
 {
     // Precondition: first does not point to the leading argument.
     // E.g. for "--resolution", "800", "600" we pass in "800", "600"
-    std::size_t count{ 0 };
+    std::size_t count{0};
     for (; first != last; ++first) {
         if (first->starts_with('-')) {
             return count;
@@ -506,7 +503,7 @@ inline [[nodiscard]] std::size_t get_number_available_sub_args(Iterator first, I
 class CommandLineParser
 {
 public:
-    void parse(Iterator first, Iterator last)
+    void parse(Iterator first, const Iterator last)
     {
         // Precondition: the executable name has been removed from argc
         while (first != last) {
@@ -525,7 +522,7 @@ public:
 
                 const auto& short_name = it->second;
 
-                auto* obj = m_args.at(Key{ short_name, long_name });
+                auto* obj = m_args.at(Key{short_name, long_name});
                 assert(obj);
 
                 first = parse_named_parameter_sub_arguments(*obj, first, last);
@@ -539,7 +536,7 @@ public:
                 }
                 const auto& long_name = it->second;
 
-                auto* obj = m_args.at(Key{ short_name, long_name });
+                auto* obj = m_args.at(Key{short_name, long_name});
                 assert(obj);
 
                 first = parse_named_parameter_sub_arguments(*obj, first, last);
@@ -573,7 +570,8 @@ public:
         std::ranges::transform(first,
                                last,
                                std::back_inserter(string_views),
-                               [](auto s) {
+                               [](auto s)
+                               {
                                    return std::string_view(s);
                                }
                               );
@@ -582,9 +580,9 @@ public:
 
     void print_help(std::ostream& outs, std::string_view program_name) const
     {
-        const bool ambiguous                = is_ambiguous();
-        const bool has_optional_named       = true;
-        const bool has_required_named       = true;
+        const bool ambiguous = is_ambiguous();
+        const bool has_optional_named = true;
+        const bool has_required_named = true;
         const bool has_required_positionals = false;
         const bool has_optional_positionals = true;
 
@@ -608,14 +606,22 @@ public:
             std::print(outs, " [{}]", m_positional->get_description());
         }
 
-        auto is_required     = [](auto x) { return x.second->is_required(); };
-        auto is_not_required = [](auto x) { return !x.second->is_required(); };
+        auto is_required = [](auto x)
+        {
+            return x.second->is_required();
+        };
+        auto is_not_required = [](auto x)
+        {
+            return !x.second->is_required();
+        };
         std::ranges::for_each(m_args | std::ranges::views::filter(is_required),
-                              [&outs](auto x) {
+                              [&outs](auto x)
+                              {
                                   std::println(outs, "Required: {}", get_representation_name(*x.second));
                               });
         std::ranges::for_each(m_args | std::ranges::views::filter(is_not_required),
-                              [&outs](auto x) {
+                              [&outs](auto x)
+                              {
                                   std::println(outs, "Optional: {}", get_representation_name(*x.second));
                               });
     }
@@ -631,7 +637,7 @@ public:
     void add(NamedParameterBase& parameter)
     {
         const auto short_name = parameter.get_short_name();
-        const auto long_name  = parameter.get_long_name();
+        const auto long_name = parameter.get_long_name();
 
         if (short_name.empty() && long_name.empty()) {
             throw_setup_error("Argument type requires at least one of a short name or a long name");
@@ -650,15 +656,16 @@ public:
         }
 
         // We add empty names deliberately.
-        m_args.emplace(Key{ short_name, long_name }, std::addressof(parameter));
+        m_args.emplace(Key{short_name, long_name}, std::addressof(parameter));
     }
 
 private:
-    auto parse_named_parameter_sub_arguments(NamedParameterBase&             obj,
-                                             string_like_input_iterator auto first,
-                                             string_like_input_iterator auto last)
+    template <string_like_input_iterator Iterator>
+    auto parse_named_parameter_sub_arguments(NamedParameterBase& obj,
+                                             Iterator first,
+                                             Iterator last) -> Iterator
     {
-        const auto min_num_sub_arguments       = obj.get_min_arg_count();
+        const auto min_num_sub_arguments = obj.get_min_arg_count();
         const auto num_available_sub_arguments = get_number_available_sub_args(first + 1, last);
 
         if (num_available_sub_arguments < min_num_sub_arguments) {
@@ -669,16 +676,16 @@ private:
         }
 
         const auto max_num_sub_arguments = obj.get_max_arg_count();
-        const auto number_to_read        = std::min(max_num_sub_arguments, num_available_sub_arguments);
+        const auto number_to_read = std::min(max_num_sub_arguments, num_available_sub_arguments);
         obj.read(first + 1, first + 1 + number_to_read); // Skip over this value
         return first + 1 + number_to_read;
     }
 
-    void parse_positionals(PositionalParameterBase&        obj,
+    void parse_positionals(PositionalParameterBase& obj,
                            string_like_input_iterator auto first,
                            string_like_input_iterator auto last)
     {
-        const auto min_num_sub_arguments       = obj.get_min_arg_count();
+        const auto min_num_sub_arguments = obj.get_min_arg_count();
         const auto num_available_sub_arguments = get_number_available_sub_args(first, last);
 
         if (num_available_sub_arguments < min_num_sub_arguments) {
@@ -708,7 +715,7 @@ private:
             return false;
         }
 
-        for (auto&& [_, arg]: m_args) {
+        for (auto&& [_, arg] : m_args) {
             assert(arg);
             if (arg->is_variable_length()) {
                 // At this point, we have a variadic positional (either we don't know the number, or the number is
@@ -729,17 +736,17 @@ private:
     using LongName = std::string_view;
     using Key = std::pair<ShortName, LongName>;
 
-    std::map<ShortName, LongName>      m_short_to_long;
-    std::map<LongName, ShortName>      m_long_to_short;
+    std::map<ShortName, LongName> m_short_to_long;
+    std::map<LongName, ShortName> m_long_to_short;
     std::map<Key, NamedParameterBase*> m_args;
-    PositionalParameterBase*           m_positional{ nullptr };
+    PositionalParameterBase* m_positional{nullptr};
 };
 
 ArgumentContainer argv_to_string_views(const std::span<const char*> sub_argv)
 {
     std::vector<std::string_view> result;
     result.reserve(sub_argv.size());
-    for (auto s: sub_argv) {
+    for (auto s : sub_argv) {
         result.emplace_back(s);
     }
     return result;
