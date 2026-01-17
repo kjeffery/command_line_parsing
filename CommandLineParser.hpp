@@ -287,6 +287,12 @@ struct NamedFixedParameterImpl
         return (*m_values)[idx].value_or(std::forward<U>(default_value));
     }
 
+    [[nodiscard]] constexpr T& value()
+        requires(num_values_min == 1ULL && num_values_max == 1ULL)
+    {
+        return (*m_values)[0].value();
+    }
+
     [[nodiscard]] constexpr T& value(std::size_t idx)
     {
         return (*m_values)[idx].value();
@@ -333,30 +339,16 @@ struct NamedFixedParameterImpl<T, 1ULL, 1ULL>
         return m_value.value_or(std::forward<U>(default_value));
     }
 
-    template <typename U>
-    [[nodiscard]] constexpr T value_or(U&& default_value) &&
+    template <typename Self, typename U>
+    [[nodiscard]] constexpr auto value_or(this Self&& self, U&& default_value) -> auto&&
     {
-        return std::move(m_value).value_or(std::forward<U>(default_value));
+        return std::forward<Self>(self).m_value.value_or(std::forward<U>(default_value));
     }
 
-    [[nodiscard]] constexpr T& value() &
+    template <typename Self>
+    [[nodiscard]] constexpr auto value(this Self&& self) -> auto&&
     {
-        return m_value.value();
-    }
-
-    [[nodiscard]] constexpr const T& value() const &
-    {
-        return m_value.value();
-    }
-
-    [[nodiscard]] constexpr T&& value() &&
-    {
-        return std::move(m_value).value();
-    }
-
-    [[nodiscard]] constexpr const T&& value() const &&
-    {
-        return std::move(m_value).value();
+        return std::forward<Self>(self).m_value.value();
     }
 
     [[nodiscard]] constexpr std::size_t get_min_arg_count() const noexcept
@@ -402,6 +394,12 @@ public:
     [[nodiscard]] constexpr T value_or(std::size_t idx, U&& default_value) const &
     {
         return m_impl.value_or(idx, std::forward<U>(default_value));
+    }
+
+    [[nodiscard]] constexpr T& value()
+        requires(num_values_min == 1ULL && num_values_max == 1ULL)
+    {
+        return m_impl.value();
     }
 
     [[nodiscard]] constexpr T& value(std::size_t idx)
