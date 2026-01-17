@@ -13,12 +13,21 @@
 #include <stdexcept>
 #include <string_view>
 #include <utility>
+
 #include <vector>
+#include <algorithm>
+#include <istream>
+#include <optional>
+#if __has_include(<print>)
+#include <print>
+#endif
 
 #if __has_include(<spanstream>)
 #include <spanstream>
+#define COMMANDLINEPARSER_HAS_SPANSTREAM 1
 #else
 #include <sstream>
+#define COMMANDLINEPARSER_HAS_SPANSTREAM 0
 #endif
 
 namespace CommandLineParser {
@@ -67,8 +76,7 @@ template <typename T>
 concept string_like = std::is_same_v<T, std::string> || std::is_same_v<T, std::string_view>;
 
 template <typename T>
-concept string_like_input_iterator = std::input_iterator<T> && string_like<typename std::iterator_traits<
-    T>::value_type>;
+concept string_like_input_iterator = std::random_access_iterator<T> && string_like<typename std::iterator_traits<T>::value_type>;
 
 template <typename T>
 concept has_custom_parameter_read = requires(T a)
@@ -87,6 +95,21 @@ T do_read(std::istream& ins)
         ins >> t;
     }
     return t;
+}
+
+inline auto make_input_stream(std::string_view sv)
+#if COMMANDLINEPARSER_HAS_SPANSTREAM
+    -> std::ispanstream
+#else
+    -> std::istringstream
+#endif
+{
+#if COMMANDLINEPARSER_HAS_SPANSTREAM
+    std::span<const char> span_view{ sv.data(), sv.size() };
+    return std::ispanstream(span_view);
+#else
+    return std::istringstream(std::string(sv));
+#endif
 }
 
 struct NamedParameterInput
@@ -241,18 +264,15 @@ struct NamedRuntimeParameterImpl
 
     void read(Iterator first, Iterator last)
     {
-        // Get rid of default values on first read.
-        // TODO: multiple calls may need to check if this is the first read (use set_by_user?)
-        m_values.clear();
+        // Reset values on each read (duplicate flag policy: last occurrence wins).
+        m_values.reset();
 
         for (; first != last; ++first) {
-            std::span<const char> span_view(*first);
-            std::ispanstream      ins(span_view);
-
-            if (!m_values.has_value()) {
+            auto ins = make_input_stream(*first);
+            if (!m_values) {
                 m_values = std::vector<T>{};
             }
-            m_values.push_back(do_read<T>(ins));
+            m_values->push_back(do_read<T>(ins));
         }
     }
 
@@ -292,18 +312,15 @@ struct NamedFixedParameterImpl
 
     void read(Iterator first, Iterator last)
     {
-        // Get rid of default values on first read.
-        // TODO: multiple calls may need to check if this is the first read (use set_by_user?)
-        m_values.clear();
+        // Reset values on each read (duplicate flag policy: last occurrence wins).
+        m_values.reset();
 
         for (; first != last; ++first) {
-            std::span<const char> span_view(*first);
-            std::ispanstream      ins(span_view);
-
-            if (!m_values.has_value()) {
+            auto ins = make_input_stream(*first);
+            if (!m_values) {
                 m_values = std::vector<T>{};
             }
-            m_values.push_back(do_read<T>(ins));
+            m_values->push_back(do_read<T>(ins));
         }
     }
 
@@ -357,9 +374,10 @@ struct NamedFixedParameterImpl<T, 1ULL, 1ULL>
 
     void read(Iterator first, Iterator last)
     {
-        std::span<const char> span_view(*first);
-        std::ispanstream      ins(span_view);
-
+        if (first == last) {
+            throw_parse_error("Missing value for parameter");
+        }
+        auto ins = make_input_stream(*first);
         m_value = do_read<T>(ins);
     }
 
@@ -380,6 +398,23 @@ public:
                          in.long_name
                         )
     {
+    }
+
+    // Accessors
+    template <typename U>
+    [[nodiscard]] constexpr T value_or(std::size_t idx, U&& default_value) const &
+    {
+        return m_impl.value_or(idx, std::forward<U>(default_value));
+    }
+
+    [[nodiscard]] constexpr T& value(std::size_t idx)
+    {
+        return m_impl.value(idx);
+    }
+
+    [[nodiscard]] constexpr const T& value(std::size_t idx) const
+    {
+        return m_impl.value(idx);
     }
 
 private:
@@ -416,6 +451,23 @@ public:
     }
     , m_impl(num_parameters_min, num_parameters_max)
     {
+    }
+
+    // Accessors
+    template <typename U>
+    [[nodiscard]] constexpr T value_or(std::size_t idx, U&& default_value) const &
+    {
+        return m_impl.value_or(idx, std::forward<U>(default_value));
+    }
+
+    [[nodiscard]] constexpr T& value(std::size_t idx)
+    {
+        return m_impl.value(idx);
+    }
+
+    [[nodiscard]] constexpr const T& value(std::size_t idx) const
+    {
+        return m_impl.value(idx);
     }
 
 private:
@@ -500,6 +552,16 @@ public:
         }
         if (m_positional) {
             parse_positionals(*m_positional, first, last);
+        }
+        // Validate required parameters.
+        for (auto&& [_, arg] : m_args) {
+            assert(arg);
+            if (arg->is_required() && !arg->set_by_user()) {
+                throw_parse_error("Required flag '{}' was not provided", get_representation_name(*arg));
+            }
+        }
+        if (m_positional && m_positional->is_required() && !m_positional->set_by_user()) {
+            throw_parse_error("Required positional argument '{}' was not provided", m_positional->get_description());
         }
     }
 
@@ -682,4 +744,4 @@ ArgumentContainer argv_to_string_views(const std::span<const char*> sub_argv)
     }
     return result;
 }
-} // namespace CommandLineModule
+} // namespace CommandLineParser
