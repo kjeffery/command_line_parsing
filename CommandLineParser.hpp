@@ -5,6 +5,7 @@
 #include <cassert>
 #include <cstddef>
 #include <filesystem>
+#include <format>
 #include <limits>
 #include <map>
 #include <ranges>
@@ -20,19 +21,26 @@
 #include <sstream>
 #endif
 
+namespace CommandLineParser {
 using ArgumentContainer = std::vector<std::string_view>;
 using Iterator = ArgumentContainer::const_iterator;
 
-class CLParseError : public std::runtime_error
+class CLError : public std::runtime_error
 {
 public:
     using std::runtime_error::runtime_error;
 };
 
-class CLSetupError : public std::logic_error
+class CLParseError : public CLError
 {
 public:
-    using std::logic_error::logic_error;
+    using CLError::CLError;
+};
+
+class CLSetupError : public CLError
+{
+public:
+    using CLError::CLError;
 };
 
 template <typename... Args>
@@ -47,7 +55,41 @@ void throw_setup_error(std::format_string<Args...> fmt, Args&&... args)
     throw CLSetupError{ std::format(fmt, std::forward<Args>(args)...) };
 }
 
-struct SingleValueArgumentParams
+constexpr auto runtime_decision = std::numeric_limits<std::size_t>::max() - 1ULL;
+
+enum class UserInput
+{
+    required,
+    optional
+};
+
+template <typename T>
+concept string_like = std::is_same_v<T, std::string> || std::is_same_v<T, std::string_view>;
+
+template <typename T>
+concept string_like_input_iterator = std::input_iterator<T> && string_like<typename std::iterator_traits<
+    T>::value_type>;
+
+template <typename T>
+concept has_custom_parameter_read = requires(T a)
+{
+    custom_parameter_read(std::declval<std::istream&>(), a);
+};
+
+template <typename T>
+    requires std::is_default_constructible_v<T>
+T do_read(std::istream& ins)
+{
+    T t;
+    if constexpr (has_custom_parameter_read<T>) {
+        custom_parameter_read(ins, t);
+    } else {
+        ins >> t;
+    }
+    return t;
+}
+
+struct NamedParameterInput
 {
     std::string_view short_name{};
     std::string_view long_name{};
@@ -55,125 +97,17 @@ struct SingleValueArgumentParams
     bool             user_input_required{ false };
 };
 
-struct ListValueArgumentParams
-{
-    std::string_view short_name{};
-    std::string_view long_name{};
-    std::string_view description{};
-    std::size_t      min_values{ 1 };
-    std::size_t      max_values{ 1 };
-    bool             user_input_required{ false };
-};
-
-struct CountingArgumentParams
-{
-    std::string_view short_name{};
-    std::string_view long_name{};
-    std::string_view description{};
-    bool             user_input_required{ false };
-};
-
-struct SwitchArgumentParams
-{
-    std::string_view short_name{};
-    std::string_view long_name{};
-    std::string_view description{};
-    bool             user_input_required{ false };
-};
-
-struct SinglePositionalArgumentParams
-{
-    std::string_view description{};
-    bool             user_input_required{ false };
-};
-
-struct ListPositionalArgumentParams
-{
-    std::string_view description{};
-    std::size_t      min_values{ 0 };
-    std::size_t      max_values{ std::numeric_limits<std::size_t>::max() };
-    bool             user_input_required{ false };
-};
-
-struct ArgumentParams
-{
-    explicit ArgumentParams(SingleValueArgumentParams p) noexcept
-    : short_name{ std::move(p.short_name) }
-    , long_name{ std::move(p.long_name) }
-    , description{ std::move(p.description) }
-    , min_values{ 1 }
-    , max_values{ 1 }
-    , user_input_required{ p.user_input_required }
-    {
-    }
-
-    explicit ArgumentParams(ListValueArgumentParams p) noexcept
-    : short_name{ std::move(p.short_name) }
-    , long_name{ std::move(p.long_name) }
-    , description{ std::move(p.description) }
-    , min_values{ p.min_values }
-    , max_values{ p.max_values }
-    , user_input_required{ p.user_input_required }
-    {
-    }
-
-    explicit ArgumentParams(CountingArgumentParams p) noexcept
-    : short_name{ std::move(p.short_name) }
-    , long_name{ std::move(p.long_name) }
-    , description{ std::move(p.description) }
-    , min_values{ 0 }
-    , max_values{ 0 }
-    , user_input_required{ p.user_input_required }
-    {
-    }
-
-    explicit ArgumentParams(SwitchArgumentParams p) noexcept
-    : short_name{ std::move(p.short_name) }
-    , long_name{ std::move(p.long_name) }
-    , description{ std::move(p.description) }
-    , min_values{ 0 }
-    , max_values{ 0 }
-    , user_input_required{ p.user_input_required }
-    {
-    }
-
-    explicit ArgumentParams(SinglePositionalArgumentParams p) noexcept
-    : short_name{}
-    , long_name{}
-    , description{ std::move(p.description) }
-    , min_values{ 1 }
-    , max_values{ 1 }
-    , user_input_required{ p.user_input_required }
-    {
-    }
-
-    explicit ArgumentParams(ListPositionalArgumentParams p) noexcept
-    : short_name{}
-    , long_name{}
-    , description{ std::move(p.description) }
-    , min_values{ p.min_values }
-    , max_values{ p.max_values }
-    , user_input_required{ p.user_input_required }
-    {
-    }
-
-    std::string_view short_name;
-    std::string_view long_name;
-    std::string_view description;
-    std::size_t      min_values;
-    std::size_t      max_values;
-    bool             user_input_required;
-};
-
-class ArgumentBase
+class ParameterBase
 {
 public:
-    explicit ArgumentBase(ArgumentParams p)
-    : m_params{ std::move(p) }
+    constexpr ParameterBase(const std::string_view description,
+                            const UserInput        user_input)
+    : m_description{ description }
+    , m_user_input{ user_input }
     {
     }
 
-    virtual ~ArgumentBase() = default;
+    virtual ~ParameterBase() = default;
 
     void read(Iterator first, Iterator last)
     {
@@ -181,339 +115,329 @@ public:
         m_set_by_user = true;
     }
 
-    [[nodiscard]] bool is_positional() const
+    [[nodiscard]] constexpr std::string_view get_description() const noexcept
     {
-        return is_positional_impl();
-    }
-
-    [[nodiscard]] std::string_view get_short_name() const noexcept
-    {
-        return m_params.short_name;
-    }
-
-    [[nodiscard]] std::string_view get_long_name() const noexcept
-    {
-        return m_params.long_name;
-    }
-
-    [[nodiscard]] std::string_view get_description() const noexcept
-    {
-        return m_params.description;
+        return m_description;
     }
 
     [[nodiscard]] std::size_t get_min_arg_count() const noexcept
     {
-        return m_params.min_values;
+        return get_min_arg_count_impl();
     }
 
     [[nodiscard]] std::size_t get_max_arg_count() const noexcept
     {
-        return m_params.max_values;
+        return get_max_arg_count_impl();
     }
 
-    [[nodiscard]] bool set_by_user() const noexcept
+    [[nodiscard]] constexpr bool set_by_user() const noexcept
     {
         return m_set_by_user;
     }
 
-    [[nodiscard]] bool is_required() const noexcept
+    [[nodiscard]] constexpr bool is_required() const noexcept
     {
-        return m_params.user_input_required;
+        return m_user_input == UserInput::required;
     }
 
-    bool is_variable_length() const noexcept
+    [[nodiscard]] bool is_variable_length() const noexcept
     {
         return get_min_arg_count() != get_max_arg_count();
     }
 
 private:
-    virtual void               read_impl(Iterator first, Iterator last) = 0;
-    [[nodiscard]] virtual bool is_positional_impl() const = 0;
+    virtual void                      read_impl(Iterator first, Iterator last) = 0;
+    [[nodiscard]] virtual std::size_t get_min_arg_count_impl() const noexcept = 0;
+    [[nodiscard]] virtual std::size_t get_max_arg_count_impl() const noexcept = 0;
 
-    bool           m_set_by_user{ false };
-    ArgumentParams m_params;
+    bool             m_set_by_user{ false };
+    std::string_view m_description;
+    UserInput        m_user_input;
 };
 
-class SwitchArgument final : public ArgumentBase
+class NamedParameterBase : public ParameterBase
 {
 public:
-    explicit SwitchArgument(SwitchArgumentParams a)
-    : ArgumentBase{ ArgumentParams{ std::move(a) } }
+    constexpr NamedParameterBase(const std::string_view description,
+                                 const UserInput        user_input,
+                                 const std::string_view short_name,
+                                 const std::string_view long_name)
+    : ParameterBase{ description, user_input }
+    , m_short_name{ short_name }
+    , m_long_name{ long_name }
     {
     }
 
-    [[nodiscard]] bool get() const noexcept
+    [[nodiscard]] constexpr std::string_view get_short_name() const noexcept
     {
-        return m_value;
+        return m_short_name;
     }
 
-    explicit operator bool() const noexcept
+    [[nodiscard]] constexpr std::string_view get_long_name() const noexcept
     {
-        return m_value;
+        return m_long_name;
     }
 
 private:
-    void read_impl(Iterator, Iterator) override
-    {
-        m_value = true;
-    }
-
-    [[nodiscard]] bool is_positional_impl() const override
-    {
-        return false;
-    }
-
-    bool m_value{ false };
+    std::string_view m_short_name;
+    std::string_view m_long_name;
 };
 
-class CountingArgument final : public ArgumentBase
+class PositionalParameterBase : public ParameterBase
 {
 public:
-    explicit CountingArgument(CountingArgumentParams a)
-    : ArgumentBase{ ArgumentParams{ std::move(a) } }
+    constexpr PositionalParameterBase(const std::string_view description,
+                                      const UserInput        user_input)
+    : ParameterBase{ description, user_input }
     {
     }
-
-    [[nodiscard]] std::size_t get() const noexcept
-    {
-        return m_value;
-    }
-
-private:
-    void read_impl(Iterator, Iterator) override
-    {
-        ++m_value;
-    }
-
-    [[nodiscard]] bool is_positional_impl() const override
-    {
-        return false;
-    }
-
-    std::size_t m_value{ 0 };
 };
 
 template <typename T>
-class SingleValueArgument final : public ArgumentBase
+struct NamedRuntimeParameterImpl
 {
-public:
-    explicit SingleValueArgument(SingleValueArgumentParams p, T default_value = T{})
-    : ArgumentBase{ ArgumentParams{ std::move(p) } }
-    , m_value{ std::move(default_value) }
+    constexpr NamedRuntimeParameterImpl(std::size_t num_values_min, std::size_t num_values_max)
+    : m_num_values_min{ num_values_min }
+    , m_num_values_max{ num_values_max }
     {
     }
 
-    [[nodiscard]] const T& get() const noexcept
-    {
-        return m_value;
-    }
-
-private:
-    void read_impl(Iterator first, Iterator last) override
-    {
-        assert(std::distance(first, last) == 1);
-#if defined(__cpp_lib_spanstream)
-        std::span<const char> span_view(*first);
-        std::ispanstream      ins(span_view);
-#elif defined(__cpp_lib_sstream_from_string_view)
-        std::istringstream ins(s);
-#else
-        std::istringstream ins(std::string(s));
-#endif
-
-        ins >> m_value;
-    }
-
-    [[nodiscard]] bool is_positional_impl() const override
-    {
-        return false;
-    }
-
-    T m_value;
-};
-
-template <typename T>
-class ListValueArgument final : public ArgumentBase
-{
-public:
-    explicit ListValueArgument(ListValueArgumentParams p, std::initializer_list<T> default_values = {})
-    : ArgumentBase{ ArgumentParams{ std::move(p) } }
-    , m_values{ default_values.begin(), default_values.end() }
+    template <typename U = T>
+    constexpr explicit NamedRuntimeParameterImpl(
+            U&&         value,
+            std::size_t num_values_min,
+            std::size_t num_values_max)
+    : m_values(std::forward<U>(value))
+    , m_num_values_min{ num_values_min }
+    , m_num_values_max{ num_values_max }
     {
     }
 
-    [[nodiscard]] const T& get(std::size_t idx) const noexcept
+    template <typename U>
+    [[nodiscard]] constexpr T value_or(std::size_t idx, U&& default_value) const &
     {
-        return m_values[idx];
+        return (*m_values)[idx].value_or(std::forward<U>(default_value));
     }
 
-    [[nodiscard]] std::size_t size() const noexcept
+    [[nodiscard]] constexpr T& value(std::size_t idx)
     {
-        return m_values.size();
+        return (*m_values)[idx].value();
     }
 
-    auto begin() const
+    [[nodiscard]] constexpr const T& value(std::size_t idx) const
     {
-        return m_values.cbegin();
+        return (*m_values)[idx].value();
     }
 
-    auto end() const
+    [[nodiscard]] constexpr std::size_t get_min_arg_count() const noexcept
     {
-        return m_values.cend();
+        return m_num_values_min;
     }
 
-    auto cbegin() const
+    [[nodiscard]] constexpr std::size_t get_max_arg_count() const noexcept
     {
-        return m_values.cbegin();
+        return m_num_values_max;
     }
 
-    auto cend() const
+    void read(Iterator first, Iterator last)
     {
-        return m_values.cend();
-    }
+        // Get rid of default values on first read.
+        // TODO: multiple calls may need to check if this is the first read (use set_by_user?)
+        m_values.clear();
 
-private:
-    void read_impl(Iterator first, Iterator last) override
-    {
-        if (!this->set_by_user()) {
-            // Get rid of default values on first read.
-            m_values.clear();
-        }
         for (; first != last; ++first) {
-#if defined(__cpp_lib_spanstream)
             std::span<const char> span_view(*first);
             std::ispanstream      ins(span_view);
-#elif defined(__cpp_lib_sstream_from_string_view)
-            std::istringstream ins(s);
-#else
-            std::istringstream ins(std::string(s));
-#endif
 
-            T t;
-            ins >> t;
-            m_values.push_back(std::move(t));
+            if (!m_values.has_value()) {
+                m_values = std::vector<T>{};
+            }
+            m_values.push_back(do_read<T>(ins));
         }
     }
 
-    [[nodiscard]] bool is_positional_impl() const override
-    {
-        return false;
-    }
-
-    std::vector<T> m_values;
+    std::optional<std::vector<T>> m_values;
+    std::size_t                   m_num_values_min;
+    std::size_t                   m_num_values_max;
 };
 
-template <typename T>
-class SinglePositionalArgument final : public ArgumentBase
+template <typename T, std::size_t num_values_min, std::size_t num_values_max>
+struct NamedFixedParameterImpl
 {
-public:
-    explicit SinglePositionalArgument(SinglePositionalArgumentParams p, T default_value = T{})
-    : ArgumentBase{ ArgumentParams{ std::move(p) } }
-    , m_value{ std::move(default_value) }
+    template <typename U>
+    [[nodiscard]] constexpr T value_or(std::size_t idx, U&& default_value) const &
     {
+        return (*m_values)[idx].value_or(std::forward<U>(default_value));
     }
 
-    [[nodiscard]] const T& get() const noexcept
+    [[nodiscard]] constexpr T& value(std::size_t idx)
     {
-        return m_value;
+        return (*m_values)[idx].value();
     }
 
-private:
-    void read_impl(Iterator first, Iterator last) override
+    [[nodiscard]] constexpr const T& value(std::size_t idx) const
     {
-        assert(std::distance(first, last) == 1);
-#if defined(__cpp_lib_spanstream)
-        std::span<const char> span_view(*first);
-        std::ispanstream      ins(span_view);
-#elif defined(__cpp_lib_sstream_from_string_view)
-        std::istringstream ins(s);
-#else
-        std::istringstream ins(std::string(s));
-#endif
-
-        ins >> m_value;
+        return (*m_values)[idx].value();
     }
 
-    [[nodiscard]] bool is_positional_impl() const override
+    [[nodiscard]] constexpr std::size_t get_min_arg_count() const noexcept
     {
-        return true;
+        return num_values_min;
     }
 
-    T m_value;
-};
-
-template <typename T>
-class ListPositionalArguments final : public ArgumentBase
-{
-public:
-    explicit ListPositionalArguments(ListPositionalArgumentParams p, std::initializer_list<T> default_values = {})
-    : ArgumentBase{ ArgumentParams{ std::move(p) } }
-    , m_values{ default_values.begin(), default_values.end() }
+    [[nodiscard]] constexpr std::size_t get_max_arg_count() const noexcept
     {
+        return num_values_max;
     }
 
-    [[nodiscard]] const T& get(std::size_t idx) const noexcept
+    void read(Iterator first, Iterator last)
     {
-        return m_values[idx];
-    }
+        // Get rid of default values on first read.
+        // TODO: multiple calls may need to check if this is the first read (use set_by_user?)
+        m_values.clear();
 
-    [[nodiscard]] std::size_t size() const noexcept
-    {
-        return m_values.size();
-    }
-
-    auto begin() const
-    {
-        return m_values.cbegin();
-    }
-
-    auto end() const
-    {
-        return m_values.cend();
-    }
-
-    auto cbegin() const
-    {
-        return m_values.cbegin();
-    }
-
-    auto cend() const
-    {
-        return m_values.cend();
-    }
-
-private:
-    void read_impl(Iterator first, Iterator last) override
-    {
-        if (!this->set_by_user()) {
-            // Get rid of default values on first read.
-            m_values.clear();
-        }
         for (; first != last; ++first) {
-#if defined(__cpp_lib_spanstream)
             std::span<const char> span_view(*first);
             std::ispanstream      ins(span_view);
-#elif defined(__cpp_lib_sstream_from_string_view)
-            std::istringstream ins(s);
-#else
-            std::istringstream ins(std::string(s));
-#endif
 
-            T t;
-            ins >> t;
-            m_values.push_back(std::move(t));
+            if (!m_values.has_value()) {
+                m_values = std::vector<T>{};
+            }
+            m_values.push_back(do_read<T>(ins));
         }
     }
 
-    [[nodiscard]] bool is_positional_impl() const override
-    {
-        return true;
-    }
-
-    std::vector<T> m_values;
+    std::optional<std::vector<T>> m_values;
 };
 
-inline std::size_t get_number_available_sub_args(Iterator first, Iterator last)
+template <typename T>
+struct NamedFixedParameterImpl<T, 1ULL, 1ULL>
+{
+    template <typename U>
+    [[nodiscard]] constexpr T value_or(U&& default_value) const &
+    {
+        return m_value.value_or(std::forward<U>(default_value));
+    }
+
+    template <typename U>
+    [[nodiscard]] constexpr T value_or(U&& default_value) &&
+    {
+        return std::move(m_value).value_or(std::forward<U>(default_value));
+    }
+
+    [[nodiscard]] constexpr T& value() &
+    {
+        return m_value.value();
+    }
+
+    [[nodiscard]] constexpr const T& value() const &
+    {
+        return m_value.value();
+    }
+
+    [[nodiscard]] constexpr T&& value() &&
+    {
+        return std::move(m_value).value();
+    }
+
+    [[nodiscard]] constexpr const T&& value() const &&
+    {
+        return std::move(m_value).value();
+    }
+
+    [[nodiscard]] constexpr std::size_t get_min_arg_count() const noexcept
+    {
+        return 1;
+    }
+
+    [[nodiscard]] constexpr std::size_t get_max_arg_count() const noexcept
+    {
+        return 1;
+    }
+
+    void read(Iterator first, Iterator last)
+    {
+        std::span<const char> span_view(*first);
+        std::ispanstream      ins(span_view);
+
+        m_value = do_read<T>(ins);
+    }
+
+    std::optional<T> m_value;
+};
+
+template <typename T, std::size_t num_values_min = 1ULL, std::size_t num_values_max = num_values_min>
+class NamedParameter final : public NamedParameterBase
+{
+    using Impl = NamedFixedParameterImpl<T, num_values_min, num_values_max>;
+
+public:
+    explicit NamedParameter(const NamedParameterInput& in)
+    : NamedParameterBase(
+                         in.description,
+                         (in.user_input_required) ? UserInput::required : UserInput::optional,
+                         in.short_name,
+                         in.long_name
+                        )
+    {
+    }
+
+private:
+    [[nodiscard]] std::size_t get_min_arg_count_impl() const noexcept override
+    {
+        return m_impl.get_min_arg_count();
+    }
+
+    [[nodiscard]] std::size_t get_max_arg_count_impl() const noexcept override
+    {
+        return m_impl.get_max_arg_count();
+    }
+
+    void read_impl(Iterator first, Iterator last) override
+    {
+        m_impl.read(first, last);
+    }
+
+    Impl m_impl;
+};
+
+template <typename T, std::size_t unused>
+class NamedParameter<T, runtime_decision, unused> final : public NamedParameterBase
+{
+    using Impl = NamedRuntimeParameterImpl<T>;
+
+public:
+    explicit NamedParameter(const NamedParameterInput& in,
+                            std::size_t                num_parameters_min,
+                            std::size_t                num_parameters_max)
+    : NamedParameterBase{
+        in.description, (in.user_input_required) ? UserInput::required : UserInput::optional, in.short_name,
+        in.long_name
+    }
+    , m_impl(num_parameters_min, num_parameters_max)
+    {
+    }
+
+private:
+    [[nodiscard]] std::size_t get_min_arg_count_impl() const noexcept override
+    {
+        return m_impl.get_min_arg_count();
+    }
+
+    [[nodiscard]] std::size_t get_max_arg_count_impl() const noexcept override
+    {
+        return m_impl.get_max_arg_count();
+    }
+
+    void read_impl(Iterator first, Iterator last) override
+    {
+        m_impl.read(first, last);
+    }
+
+    Impl m_impl;
+};
+
+inline [[nodiscard]] std::size_t get_number_available_sub_args(Iterator first, Iterator last)
 {
     // Precondition: first does not point to the leading argument.
     // E.g. for "--resolution", "800", "600" we pass in "800", "600"
@@ -530,36 +454,43 @@ inline std::size_t get_number_available_sub_args(Iterator first, Iterator last)
 class CommandLineParser
 {
 public:
-    void parse(const ArgumentContainer& argc)
+    void parse(Iterator first, Iterator last)
     {
         // Precondition: the executable name has been removed from argc
-        auto first = argc.cbegin();
-        auto last  = argc.cend();
-
         while (first != last) {
-            const std::string_view& arg = *first;
-            if (arg == "--") {
+            if (const auto& arg = *first; arg == "--") {
                 // Do positional parsing
                 // Don't mark an empty positional as an error here...maybe it was blank for a reason.
                 break;
             } else if (arg.starts_with("--")) {
                 auto long_name = arg;
                 long_name.remove_prefix(2); // Remove "--"
-                const auto short_name = m_long_to_short.at(long_name);
+
+                const auto it = m_long_to_short.find(long_name);
+                if (it == m_long_to_short.end()) {
+                    throw_parse_error("Not a valid argument: --{}", long_name);
+                }
+
+                const auto& short_name = it->second;
 
                 auto* obj = m_args.at(Key{ short_name, long_name });
                 assert(obj);
 
-                first = parse_sub_arguments(*obj, first, last);
+                first = parse_named_parameter_sub_arguments(*obj, first, last);
             } else if (arg.starts_with('-')) {
                 auto short_name = arg;
                 short_name.remove_prefix(1); // Remove '-'
-                const auto long_name = m_short_to_long.at(short_name);
+
+                const auto it = m_short_to_long.find(short_name);
+                if (it == m_short_to_long.end()) {
+                    throw_parse_error("Not a valid argument: -{}", short_name);
+                }
+                const auto& long_name = it->second;
 
                 auto* obj = m_args.at(Key{ short_name, long_name });
                 assert(obj);
 
-                first = parse_sub_arguments(*obj, first, last);
+                first = parse_named_parameter_sub_arguments(*obj, first, last);
             } else {
                 if (!m_positional) {
                     throw_parse_error("There are leftover arguments that could not be parsed");
@@ -570,6 +501,21 @@ public:
         if (m_positional) {
             parse_positionals(*m_positional, first, last);
         }
+    }
+
+    // If we send non-random-access iterators or iterators with std::string, we convert to random-access string_view
+    // iterators.
+    void parse(string_like_input_iterator auto first, string_like_input_iterator auto last)
+    {
+        ArgumentContainer string_views;
+        std::ranges::transform(first,
+                               last,
+                               std::back_inserter(string_views),
+                               [](auto s) {
+                                   return std::string_view(s);
+                               }
+                              );
+        parse(string_views.cbegin(), string_views.cend());
     }
 
     void print_help(std::ostream& outs, std::string_view program_name) const
@@ -600,7 +546,7 @@ public:
             std::print(outs, " [{}]", m_positional->get_description());
         }
 
-        auto is_required = [](auto x) { return x.second->is_required(); };
+        auto is_required     = [](auto x) { return x.second->is_required(); };
         auto is_not_required = [](auto x) { return !x.second->is_required(); };
         std::ranges::for_each(m_args | std::ranges::views::filter(is_required),
                               [&outs](auto x) {
@@ -612,21 +558,21 @@ public:
                               });
     }
 
-    void add(ArgumentBase& argument)
+    void add(PositionalParameterBase& parameter)
     {
-        if (argument.is_positional()) {
-            if (m_positional) {
-                throw_setup_error("Positional arguments specified more than once");
-            }
-            m_positional = std::addressof(argument);
-            return;
+        if (m_positional) {
+            throw_setup_error("Positional arguments specified more than once");
         }
+        m_positional = std::addressof(parameter);
+    }
 
-        const auto short_name = argument.get_short_name();
-        const auto long_name  = argument.get_long_name();
+    void add(NamedParameterBase& parameter)
+    {
+        const auto short_name = parameter.get_short_name();
+        const auto long_name  = parameter.get_long_name();
 
         if (short_name.empty() && long_name.empty()) {
-            throw_setup_error("Argument type requires a name");
+            throw_setup_error("Argument type requires at least one of a short name or a long name");
         }
 
         if (!short_name.empty()) {
@@ -640,11 +586,15 @@ public:
                 throw_setup_error("Long name {} already specified", long_name);
             }
         }
-        m_args.emplace(Key{ short_name, long_name }, std::addressof(argument));
+
+        // We add empty names deliberately.
+        m_args.emplace(Key{ short_name, long_name }, std::addressof(parameter));
     }
 
 private:
-    Iterator parse_sub_arguments(ArgumentBase& obj, Iterator first, Iterator last)
+    auto parse_named_parameter_sub_arguments(NamedParameterBase&             obj,
+                                             string_like_input_iterator auto first,
+                                             string_like_input_iterator auto last)
     {
         const auto min_num_sub_arguments       = obj.get_min_arg_count();
         const auto num_available_sub_arguments = get_number_available_sub_args(first + 1, last);
@@ -662,7 +612,9 @@ private:
         return first + 1 + number_to_read;
     }
 
-    void parse_positionals(ArgumentBase& obj, Iterator first, Iterator last)
+    void parse_positionals(PositionalParameterBase&        obj,
+                           string_like_input_iterator auto first,
+                           string_like_input_iterator auto last)
     {
         const auto min_num_sub_arguments       = obj.get_min_arg_count();
         const auto num_available_sub_arguments = get_number_available_sub_args(first, last);
@@ -683,7 +635,7 @@ private:
         obj.read(first, last);
     }
 
-    bool is_ambiguous() const
+    [[nodiscard]] bool is_ambiguous() const
     {
         if (!m_positional) {
             return false;
@@ -705,9 +657,8 @@ private:
         return false;
     }
 
-    static std::string_view get_representation_name(const ArgumentBase& arg)
+    static std::string_view get_representation_name(const NamedParameterBase& arg)
     {
-        assert(!arg.is_positional());
         const auto& long_name = arg.get_long_name();
         return (long_name.empty()) ? arg.get_short_name() : long_name;
     }
@@ -716,13 +667,13 @@ private:
     using LongName = std::string_view;
     using Key = std::pair<ShortName, LongName>;
 
-    std::map<ShortName, LongName> m_short_to_long;
-    std::map<LongName, ShortName> m_long_to_short;
-    std::map<Key, ArgumentBase*>  m_args;
-    ArgumentBase*                 m_positional{ nullptr };
+    std::map<ShortName, LongName>      m_short_to_long;
+    std::map<LongName, ShortName>      m_long_to_short;
+    std::map<Key, NamedParameterBase*> m_args;
+    PositionalParameterBase*           m_positional{ nullptr };
 };
 
-inline std::vector<std::string_view> to_string_views(std::span<const char*> sub_argv)
+ArgumentContainer argv_to_string_views(const std::span<const char*> sub_argv)
 {
     std::vector<std::string_view> result;
     result.reserve(sub_argv.size());
@@ -731,3 +682,4 @@ inline std::vector<std::string_view> to_string_views(std::span<const char*> sub_
     }
     return result;
 }
+} // namespace CommandLineModule

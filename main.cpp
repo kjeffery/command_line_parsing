@@ -1,7 +1,7 @@
-import std;
-import CommandLineParser;
+#include "CommandLineParser.hpp"
 
 #include <cassert>
+#include <thread>
 
 class MyNonStreamableClass
 {
@@ -23,12 +23,6 @@ int main(int argc, const char* argv[])
     try {
         const auto default_threads = std::thread::hardware_concurrency();
 
-        // CommandLineParser::NamedParameter<std::string> name{
-        //     CommandLineParser::NamedParameterInput{
-        //         .short_name = "n", .long_name = "name",
-        //         .description = "First name", .user_input_required = true
-        //     }
-        // };
         CommandLineParser::NamedParameter<std::string> name{
             {
                 .short_name = "n", .long_name = "name",
